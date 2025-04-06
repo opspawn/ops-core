@@ -1,0 +1,80 @@
+syntax = "proto3";
+
+package ops_core.proto;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+// Enum mirroring ops_core.models.tasks.TaskStatus
+enum TaskStatus {
+  TASK_STATUS_UNSPECIFIED = 0;
+  PENDING = 1;
+  RUNNING = 2;
+  COMPLETED = 3;
+  FAILED = 4;
+  CANCELLED = 5;
+}
+
+// Message representing a Task, similar to the Pydantic model
+message Task {
+  string task_id = 1;
+  string task_type = 2;
+  TaskStatus status = 3;
+  google.protobuf.Struct input_data = 4;
+  google.protobuf.Struct output_data = 5; // Use Struct for arbitrary JSON-like data
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+  google.protobuf.Timestamp started_at = 8;
+  google.protobuf.Timestamp completed_at = 9;
+  string error_message = 10;
+}
+
+// Request to create a new task
+message CreateTaskRequest {
+  string task_type = 1;
+  google.protobuf.Struct input_data = 2;
+  // Add other fields if needed
+}
+
+// Response for creating a task (returns the created task)
+message CreateTaskResponse {
+  Task task = 1;
+}
+
+// Request to get a task by ID
+message GetTaskRequest {
+  string task_id = 1;
+}
+
+// Response for getting a task (returns the task)
+message GetTaskResponse {
+  Task task = 1;
+}
+
+// Request to list tasks (potentially with filters/pagination later)
+message ListTasksRequest {
+  // Add filter fields like status later if needed
+  // int32 page_size = 1;
+  // string page_token = 2;
+}
+
+// Response for listing tasks
+message ListTasksResponse {
+  repeated Task tasks = 1;
+  // string next_page_token = 2;
+  int32 total = 3; // Simple total count for now
+}
+
+// Service definition for Task management via gRPC
+service TaskService {
+  // Creates a new task
+  rpc CreateTask(CreateTaskRequest) returns (CreateTaskResponse);
+
+  // Retrieves a specific task by ID
+  rpc GetTask(GetTaskRequest) returns (GetTaskResponse);
+
+  // Lists tasks
+  rpc ListTasks(ListTasksRequest) returns (ListTasksResponse);
+
+  // Add other methods like CancelTask, UpdateTask etc. later if needed
+}
