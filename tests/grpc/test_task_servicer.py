@@ -28,10 +28,10 @@ def mock_metadata_store() -> AsyncMock:
 
 @pytest.fixture
 def mock_scheduler(mock_metadata_store: AsyncMock) -> AsyncMock:
-    """Provides a mock InMemoryScheduler with a mocked _metadata_store."""
+    """Provides a mock InMemoryScheduler with a mocked metadata_store."""
     scheduler = AsyncMock(spec=InMemoryScheduler)
-    # Configure the mock to have the private attribute the servicer expects
-    scheduler._metadata_store = mock_metadata_store
+    # Configure the mock to have the public attribute the servicer expects
+    scheduler.metadata_store = mock_metadata_store # Set public attribute
     return scheduler
 
 @pytest.fixture
@@ -137,15 +137,15 @@ async def test_get_task_success(task_servicer: TaskServicer, mock_scheduler: Asy
         updated_at=datetime.now(timezone.utc),
         started_at=datetime.now(timezone.utc),
     )
-    # Access the mocked store via the private attribute set in the fixture
-    mock_scheduler._metadata_store.get_task.return_value = mock_core_task
+    # Access the mocked store via the public attribute set in the fixture
+    mock_scheduler.metadata_store.get_task.return_value = mock_core_task
 
     # Act
     response = await task_servicer.GetTask(request, mock_grpc_context)
 
     # Assert
     # Verify the call on the mocked store directly
-    mock_scheduler._metadata_store.get_task.assert_awaited_once_with(task_id)
+    mock_scheduler.metadata_store.get_task.assert_awaited_once_with(task_id) # Use public attribute
     assert isinstance(response, tasks_pb2.GetTaskResponse)
     assert response.task.task_id == task_id
     assert response.task.task_type == mock_core_task.task_type
@@ -161,19 +161,89 @@ async def test_get_task_not_found(task_servicer: TaskServicer, mock_scheduler: A
     # Arrange
     task_id = "not_found_task"
     request = tasks_pb2.GetTaskRequest(task_id=task_id)
-    # Access the mocked store via the private attribute set in the fixture
-    mock_scheduler._metadata_store.get_task.return_value = None
+    # Access the mocked store via the public attribute set in the fixture
+    mock_scheduler.metadata_store.get_task.return_value = None
 
     # Act
     await task_servicer.GetTask(request, mock_grpc_context)
 
     # Assert
     # Verify the call on the mocked store directly
-    mock_scheduler._metadata_store.get_task.assert_awaited_once_with(task_id)
+    mock_scheduler.metadata_store.get_task.assert_awaited_once_with(task_id) # Use public attribute
     # Use imported StatusCode
     mock_grpc_context.abort.assert_awaited_once_with(
         StatusCode.NOT_FOUND, f"Task with ID '{task_id}' not found."
     )
+
+@pytest.mark.asyncio
+async def test_get_task_metadata_store_error(task_servicer: TaskServicer, mock_scheduler: AsyncMock, mock_grpc_context: AsyncMock):
+    """
+    Test task retrieval failure when the metadata store raises an error.
+    """
+    # Arrange
+    task_id = "error_task_grpc"
+    request = tasks_pb2.GetTaskRequest(task_id=task_id)
+    error_message = "DB connection lost"
+    # Access the mocked store via the public attribute set in the fixture
+    mock_scheduler.metadata_store.get_task.side_effect = Exception(error_message)
+
+    # Act
+    await task_servicer.GetTask(request, mock_grpc_context)
+
+    # Assert
+    # Verify the call on the mocked store directly
+    mock_scheduler.metadata_store.get_task.assert_awaited_once_with(task_id) # Use public attribute
+    # Use imported StatusCode
+    mock_grpc_context.abort.assert_awaited_once_with(
+        StatusCode.INTERNAL, f"Failed to retrieve task: {error_message}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_create_task_missing_task_type(task_servicer: TaskServicer, mock_scheduler: AsyncMock, mock_grpc_context: AsyncMock):
+    """
+    Test task creation failure when task_type is missing.
+    """
+    # Arrange
+    input_dict = {"prompt": "some data"}
+    # Create request without setting task_type
+    request = tasks_pb2.CreateTaskRequest(
+        input_data=_dict_to_struct(input_dict)
+    )
+
+    # Act
+    await task_servicer.CreateTask(request, mock_grpc_context)
+
+    # Assert
+    mock_scheduler.submit_task.assert_not_awaited() # Scheduler should not be called
+    # Use imported StatusCode
+    mock_grpc_context.abort.assert_awaited_once_with(
+        StatusCode.INVALID_ARGUMENT, "Task type cannot be empty."
+    )
+
+@pytest.mark.asyncio
+async def test_create_task_empty_task_type(task_servicer: TaskServicer, mock_scheduler: AsyncMock, mock_grpc_context: AsyncMock):
+    """
+    Test task creation failure when task_type is an empty string.
+    """
+    # Arrange
+    input_dict = {"prompt": "some data"}
+    # Create request with empty task_type
+    request = tasks_pb2.CreateTaskRequest(
+        task_type="",
+        input_data=_dict_to_struct(input_dict)
+    )
+
+    # Act
+    await task_servicer.CreateTask(request, mock_grpc_context)
+
+    # Assert
+    mock_scheduler.submit_task.assert_not_awaited() # Scheduler should not be called
+    # Use imported StatusCode
+    mock_grpc_context.abort.assert_awaited_once_with(
+        StatusCode.INVALID_ARGUMENT, "Task type cannot be empty."
+    )
+
 
 @pytest.mark.asyncio
 async def test_list_tasks_success(task_servicer: TaskServicer, mock_scheduler: AsyncMock, mock_grpc_context: AsyncMock):
@@ -187,15 +257,15 @@ async def test_list_tasks_success(task_servicer: TaskServicer, mock_scheduler: A
         CoreTask(task_id="task_a", task_type="type1", status=CoreTaskStatus.COMPLETED, input_data={}, created_at=now, updated_at=now),
         CoreTask(task_id="task_b", task_type="type2", status=CoreTaskStatus.PENDING, input_data={}, created_at=now, updated_at=now),
     ]
-    # Access the mocked store via the private attribute set in the fixture
-    mock_scheduler._metadata_store.list_tasks.return_value = mock_core_tasks
+    # Access the mocked store via the public attribute set in the fixture
+    mock_scheduler.metadata_store.list_tasks.return_value = mock_core_tasks
 
     # Act
     response = await task_servicer.ListTasks(request, mock_grpc_context)
 
     # Assert
     # Verify the call on the mocked store directly
-    mock_scheduler._metadata_store.list_tasks.assert_awaited_once()
+    mock_scheduler.metadata_store.list_tasks.assert_awaited_once() # Use public attribute
     assert isinstance(response, tasks_pb2.ListTasksResponse)
     assert len(response.tasks) == 2
     assert response.total == 2
@@ -204,3 +274,26 @@ async def test_list_tasks_success(task_servicer: TaskServicer, mock_scheduler: A
     assert response.tasks[0].status == tasks_pb2.COMPLETED
     assert response.tasks[1].status == tasks_pb2.PENDING
     mock_grpc_context.abort.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_metadata_store_error(task_servicer: TaskServicer, mock_scheduler: AsyncMock, mock_grpc_context: AsyncMock):
+    """
+    Test task listing failure when the metadata store raises an error.
+    """
+    # Arrange
+    request = tasks_pb2.ListTasksRequest()
+    error_message = "Query failed"
+    # Access the mocked store via the public attribute set in the fixture
+    mock_scheduler.metadata_store.list_tasks.side_effect = Exception(error_message)
+
+    # Act
+    await task_servicer.ListTasks(request, mock_grpc_context)
+
+    # Assert
+    # Verify the call on the mocked store directly
+    mock_scheduler.metadata_store.list_tasks.assert_awaited_once() # Use public attribute
+    # Use imported StatusCode
+    mock_grpc_context.abort.assert_awaited_once_with(
+        StatusCode.INTERNAL, f"Failed to list tasks: {error_message}"
+    )

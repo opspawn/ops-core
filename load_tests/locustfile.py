@@ -15,21 +15,22 @@ class OpsCoreUser(HttpUser):
         """
         Simulates submitting an 'agent_run' task via the REST API.
         """
-        task_id = str(uuid.uuid4())
-        task_name = f"load_test_agent_task_{task_id}"
-        input_data = {
-            "task_type": "agent_run",
-            "goal": "Simulate agent execution under load.",
-            # Add any other necessary input data for agent_run tasks
-            # e.g., "agent_config": {...}, "tool_specs": [...]
-            "inject_mcp_proxy": False # Assuming no MCP needed for basic load test
-        }
-
         headers = {"Content-Type": "application/json"}
+
+        # Construct the JSON payload directly according to TaskCreateRequest schema
+        payload = {
+            "task_type": "agent_run",
+            "input_data": {
+                 "goal": "Simulate agent execution under load.",
+                 # Add any other necessary input data for agent_run tasks
+                 # e.g., "agent_config": {...}, "tool_specs": [...]
+                 "inject_mcp_proxy": False # Assuming no MCP needed for basic load test
+            }
+        }
 
         with self.client.post(
             "/api/v1/tasks/",
-            json={"name": task_name, "input_data": input_data},
+            json=payload, # Send the corrected payload
             headers=headers,
             name="/api/v1/tasks/ (POST agent_run)", # Name for Locust stats
             catch_response=True # Allows checking the response

@@ -7,323 +7,261 @@ and testing. It interacts with a metadata store to manage task states.
 
 import asyncio
 import logging
-import os # Added for environment variable access
-import traceback
+import os
 import uuid
 from typing import Any, Dict, Optional
 
-# Import dramatiq and broker configuration
-import dramatiq
-from ops_core.tasks import broker # Ensure broker is initialized
+# Agentkit imports
+from agentkit.core.agent import Agent
+from agentkit.memory.short_term import ShortTermMemory
+from agentkit.planning.placeholder_planner import PlaceholderPlanner # Default/fallback
+from agentkit.planning.react_planner import ReActPlanner # Import ReAct
+from agentkit.core.interfaces import BaseSecurityManager, BasePlanner, BaseLlmClient
+from agentkit.tools.registry import ToolRegistry
+# LLM Client imports (add others as needed)
+from agentkit.llm_clients.openai_client import OpenAiClient
+from agentkit.llm_clients.anthropic_client import AnthropicClient
+from agentkit.llm_clients.google_client import GoogleClient
+from agentkit.llm_clients.openrouter_client import OpenRouterClient
 
-# Import dependencies container and getters
-from ops_core.dependencies import get_metadata_store, get_mcp_client
-
-from ops_core.metadata.store import InMemoryMetadataStore, TaskNotFoundError # Keep for type hints if needed
-from ops_core.models import Task, TaskStatus
-from ops_core.mcp_client.client import OpsMcpClient # Keep for type hints if needed
+# Ops-core imports
+from ops_core.models.tasks import Task, TaskStatus
+from ops_core.metadata.store import InMemoryMetadataStore, TaskNotFoundError # Removed BaseMetadataStore
+import dramatiq # Import dramatiq itself
+from ops_core.models.tasks import Task, TaskStatus
+from ops_core.metadata.store import InMemoryMetadataStore, TaskNotFoundError # Removed BaseMetadataStore
+from ops_core.mcp_client.client import OpsMcpClient
 from ops_core.mcp_client.proxy_tool import MCPProxyTool
-
-# Attempt agentkit imports
-try:
-    from agentkit.core.agent import Agent
-    from agentkit.tools.registry import ToolRegistry
-    from agentkit.memory.short_term import ShortTermMemory # Added
-    from agentkit.planning.simple_planner import SimplePlanner # Added
-except ImportError as e:
-    Agent = None # Set to None if agentkit not available
-    ToolRegistry = None
-    ShortTermMemory = None # Added
-    SimplePlanner = None # Added
-    logging.warning(
-        "Could not import agentkit. Agent execution will be skipped. "
-        "Ensure agentkit package is installed."
-    )
+from ops_core.dependencies import get_metadata_store, get_mcp_client
+# Removed direct broker import: from ops_core.tasks.broker import broker
 
 logger = logging.getLogger(__name__)
 
+# Default Security Manager (replace with actual implementation if needed)
+class DefaultSecurityManager(BaseSecurityManager):
+    def check_execution(self, action_type: str, details: Dict[str, Any]) -> bool:
+        logger.debug(f"Security check for action '{action_type}': Allowing.")
+        return True
 
-async def _run_agent_task_logic(
-    task_id: str,
-    task_input_data: Dict[str, Any],
-    metadata_store: InMemoryMetadataStore,
-    mcp_client: Optional[OpsMcpClient]
-):
-    """Core logic for executing an agent task."""
-    # Use passed dependencies
-    # Use module-level Agent and ToolRegistry directly
-    ActualAgent = Agent
-    ActualToolRegistry = ToolRegistry
+    # Implement the missing abstract method
+    def check_permissions(self, required_permissions: list[str]) -> bool:
+        logger.debug(f"Permission check for '{required_permissions}': Allowing by default.")
+        return True
 
-    # Update status (assuming the store is accessible, e.g., DB or shared memory)
-    # In a pure InMemoryStore scenario across processes, this update won't be seen by the main app.
-    try:
-        await metadata_store.update_task_status(task_id, TaskStatus.RUNNING)
-        logger.info(f"[Actor] Task {task_id} status updated to RUNNING (in worker context).")
-    except TaskNotFoundError:
-        logger.error(f"[Actor] Task {task_id} not found in metadata store. Cannot update status.")
-        # Decide how to handle this - maybe the task was deleted? Exit actor?
-        return # Exit if task doesn't exist
-    except Exception as store_err:
-        logger.error(f"[Actor] Error updating task {task_id} status: {store_err}", exc_info=True)
-        # Proceed with execution attempt? Or fail here? For now, proceed.
+# --- LLM/Planner Instantiation Logic ---
 
-    # Execute Agent
-    task_result: Any = None
-    task_error: Optional[str] = None
-    final_status_name: str = TaskStatus.COMPLETED.name # Default to completed
+def get_llm_client() -> BaseLlmClient:
+    """Instantiates the appropriate LLM client based on environment variables."""
+    provider = os.getenv("AGENTKIT_LLM_PROVIDER", "openai").lower()
+    # Add API key checks if needed, or assume they are handled by the client itself via env vars
+    # api_key = os.getenv(f"{provider.upper()}_API_KEY")
+    # if not api_key:
+    #     raise ValueError(f"{provider.upper()}_API_KEY environment variable not set.")
 
-    # Use "prompt" key as per test input, fallback to "goal" or default
-    goal = task_input_data.get("prompt", task_input_data.get("goal", "No goal specified."))
-    inject_mcp = task_input_data.get("inject_mcp_proxy", False) # Check if proxy injection is requested
-    logger.info(f"[Actor] Executing agent task {task_id} with goal: '{goal}'")
-
-    if ActualAgent is None or ActualToolRegistry is None:
-        logger.error(f"[Actor] Cannot execute agent task {task_id}: agentkit components (Agent/ToolRegistry) not available.")
-        task_error = "Agent execution failed: agentkit components not available."
-        final_status_name = TaskStatus.FAILED.name
+    logger.info(f"Instantiating LLM client for provider: {provider}")
+    if provider == "openai":
+        return OpenAiClient()
+    elif provider == "anthropic":
+        return AnthropicClient()
+    elif provider == "google":
+        return GoogleClient()
+    elif provider == "openrouter":
+        return OpenRouterClient()
     else:
-        try:
-            # Instantiate agent components using the determined classes
-            tool_registry = ActualToolRegistry()
-            if inject_mcp and mcp_client:
-                # Use the mcp_client obtained from the dependency container
-                proxy_tool = MCPProxyTool(mcp_client=mcp_client) # Assuming MCPProxyTool is available
-                tool_registry.add_tool(proxy_tool)
-                logger.info(f"[Actor] Injected MCP Proxy Tool for task {task_id}")
-            elif inject_mcp and not mcp_client:
-                 logger.warning(f"[Actor] MCP Proxy Tool injection requested but MCP client not available for task {task_id}")
+        logger.error(f"Unsupported LLM provider specified: {provider}. Falling back to OpenAI.")
+        # Fallback or raise error - let's fallback for now
+        return OpenAiClient()
+
+def get_planner(llm_client: BaseLlmClient) -> BasePlanner:
+    """Instantiates the appropriate planner, injecting the LLM client."""
+    planner_type = os.getenv("AGENTKIT_PLANNER_TYPE", "react").lower()
+    model_name = os.getenv("AGENTKIT_LLM_MODEL") # Model might be needed by planner
+
+    logger.info(f"Instantiating planner of type: {planner_type}")
+    if planner_type == "react":
+        # Assuming ReActPlanner takes the client and potentially model name
+        return ReActPlanner(llm_client=llm_client, model_name=model_name)
+    elif planner_type == "placeholder":
+        return PlaceholderPlanner()
+    else:
+        logger.error(f"Unsupported planner type specified: {planner_type}. Falling back to ReAct.")
+        # Fallback or raise error
+        return ReActPlanner(llm_client=llm_client, model_name=model_name)
 
 
-            # Instantiate agent components using the determined classes
-            # TODO: Allow configuration of planner/memory types via input_data
-            planner_instance = SimplePlanner() if SimplePlanner else None
-            memory_instance = ShortTermMemory() if ShortTermMemory else None
-
-            agent = ActualAgent( # Use the determined class
-                planner=planner_instance,
-                memory=memory_instance,
-                tool_manager=tool_registry
-            )
-            logger.debug(f"[Actor] Instantiated Agent for task {task_id}")
-
-            # Run the agent task (Needs to be sync or handled differently in actor)
-            # agent_result_data = await agent.run_async(goal=goal) # Actors are typically sync
-            # For now, let's assume a synchronous run method exists or adapt
-            # If run_async is essential, the actor itself might need to manage an event loop
-            # Placeholder for synchronous execution concept:
-            try:
-                # --- Load Test Mocking Logic ---
-                mock_delay_ms_str = os.environ.get("OPS_CORE_LOAD_TEST_MOCK_AGENT_DELAY_MS")
-                mock_delay_s = None
-                if mock_delay_ms_str:
-                    try:
-                        mock_delay_s = int(mock_delay_ms_str) / 1000.0
-                        if mock_delay_s < 0:
-                            mock_delay_s = None # Ignore negative values
-                    except ValueError:
-                        logger.warning(f"[Actor] Invalid OPS_CORE_LOAD_TEST_MOCK_AGENT_DELAY_MS value: {mock_delay_ms_str}. Ignoring.")
-                        mock_delay_s = None
-
-                if mock_delay_s is not None:
-                    logger.info(f"[Actor] Load test mode: Mocking agent.run with {mock_delay_s:.3f}s delay for task {task_id}.")
-                    await asyncio.sleep(mock_delay_s)
-                    agent_result_data = {"output": f"Mocked agent result after {mock_delay_s:.3f}s delay."}
-                    logger.debug(f"[Actor] Mock agent run completed for task {task_id}.")
-                # --- End Load Test Mocking Logic ---
-                else:
-                    # Attempt synchronous execution if available, otherwise log limitation
-                    if hasattr(agent, 'run'):
-                         agent_result_data = agent.run(goal=goal) # Hypothetical sync method
-                    else:
-                         # If only async exists, we need to run it within the actor's context
-                         # This requires careful handling, e.g., using asyncio.run() if appropriate
-                         # or structuring the worker differently.
-                         # For simplicity now, log limitation.
-                         logger.warning(f"[Actor] Agent {task_id} only has async run. Synchronous execution placeholder used.")
-                         agent_result_data = "Placeholder: Sync execution needed or async handling in actor."
-                         # TODO: Implement proper async execution within actor if required.
-
-                # Construct result including memory history if available
-                # Extract final output string if agent_result_data is a dict
-                if isinstance(agent_result_data, dict):
-                    final_output = agent_result_data.get("output", agent_result_data) # Default to the whole dict if 'output' key missing
-                else:
-                    final_output = agent_result_data # Assume it's already the final output
-
-                memory_history = []
-                if hasattr(agent, 'memory') and agent.memory is not None and hasattr(agent.memory, 'get_history'):
-                    memory_history = agent.memory.get_history() # Fetch history
-
-                # Corrected task_result structure
-                task_result = {"memory_history": memory_history, "final_output": final_output}
-
-                logger.info(f"[Actor] Agent task {task_id} completed. Result: {task_result}")
-                final_status_name = TaskStatus.COMPLETED.name
-
-            except Exception as agent_err:
-                logger.error(f"[Actor] Agent task {task_id} failed: {agent_err}", exc_info=True)
-                task_error = f"{type(agent_err).__name__}: {agent_err}\n{traceback.format_exc()}"
-                final_status_name = TaskStatus.FAILED.name
-
-        except Exception as setup_err:
-             logger.error(f"[Actor] Error setting up agent for task {task_id}: {setup_err}", exc_info=True)
-             task_error = f"Agent setup failed: {setup_err}"
-             final_status_name = TaskStatus.FAILED.name
-
-        # Update status and result/error in the metadata store
-        # Update status and result/error in the metadata store
-        # Update status and result/error in the metadata store
-        # Update status and result/error in the metadata store
-        final_status = TaskStatus[final_status_name]
-        try:
-            # Update output/error first using the public method
-            await metadata_store.update_task_output(
-                task_id=task_id,
-                output_data=task_result if final_status == TaskStatus.COMPLETED else None,
-                error_message=task_error if final_status == TaskStatus.FAILED else None
-            )
-            # Then update the final status using the public method
-            await metadata_store.update_task_status(task_id, final_status)
-            logger.info(f"[Actor] Task {task_id} finished. Status updated to {final_status.name} (in worker context).")
-            if final_status == TaskStatus.FAILED:
-                logger.error(f"[Actor] Task {task_id} Error Details: {task_error}") # Log the error directly
-
-        except TaskNotFoundError:
-             logger.error(f"[Actor] Task {task_id} not found during final status/output update call.")
-        except Exception as final_update_err:
-            logger.error(f"[Actor] Error during final status/output update for task {task_id}: {final_update_err}", exc_info=True)
-
+# --- Scheduler Implementation ---
 
 class InMemoryScheduler:
     """
-    Manages task submission and basic processing using an in-memory approach.
+    Basic in-memory task scheduler.
 
-    Interacts with an InMemoryMetadataStore to track task states. Includes a
-    simple background loop to simulate task execution or run agentkit agents.
+    Uses Dramatiq to dispatch agent tasks for asynchronous execution.
     """
+    # Accept mcp_client for test compatibility, even if not directly used here
+    def __init__(self, metadata_store: InMemoryMetadataStore, mcp_client: Optional[OpsMcpClient] = None):
+        self.metadata_store = metadata_store
+        # self.mcp_client = mcp_client # Store if needed, but actor uses get_mcp_client()
+        logger.info("InMemoryScheduler initialized.")
+        # No background task loop needed as Dramatiq handles execution
 
-    def __init__(
-        self,
-        metadata_store: InMemoryMetadataStore,
-        mcp_client: OpsMcpClient, # Correct type hint
-        processing_interval: float = 2.0,
-    ):
+    async def submit_task(self, name: str, task_type: str, input_data: Dict[str, Any]) -> Task:
         """
-        Initializes the scheduler with a metadata store and MCP client.
+        Submits a new task to the system.
 
-        Args:
-            metadata_store: An instance of InMemoryMetadataStore.
-            mcp_client: An instance of OpsMcpClient for proxy tool injection.
-            processing_interval: How often (in seconds) the scheduler checks for pending tasks.
+        Adds the task to the metadata store and dispatches agent tasks
+        to the Dramatiq broker.
         """
-        if Agent is None:
-             # Reason: Log a clear warning if agentkit is missing, preventing agent runs.
-             logger.error("agentkit not found. Agent execution disabled.")
-
-        self._metadata_store = metadata_store
-        self._mcp_client = mcp_client # Store MCPClient instance (still needed for potential future non-actor tasks or proxy injection logic if adapted)
-        # Removed state related to internal processing loop:
-        # self._processing_interval = processing_interval
-        # self._processing_task: Optional[asyncio.Task] = None
-        # self._active_agent_tasks: Dict[str, asyncio.Task] = {}
-        # self._stop_event = asyncio.Event()
-        logger.info("InMemoryScheduler initialized (Dramatiq integration).")
-
-    async def submit_task(
-        self, name: str, task_type: str, input_data: Optional[Dict[str, Any]] = None
-    ) -> Task:
-        """
-        Creates a new task, adds it to the metadata store, and returns it.
-
-        Args:
-            name: A human-readable name for the task.
-            task_type: The type or category of the task (e.g., 'agent_run').
-            input_data: Optional dictionary containing input parameters for the task.
-
-        Returns:
-            The newly created Task object.
-        """
-        task_id = f"task_{uuid.uuid4()}" # Add prefix for clarity
+        task_id = f"task_{uuid.uuid4()}"
         new_task = Task(
-            task_id=task_id, # Use correct field name
+            task_id=task_id,
             name=name,
             task_type=task_type,
+            input_data=input_data,
             status=TaskStatus.PENDING,
-            input_data=input_data or {},
+            # created_at/updated_at handled by Pydantic default_factory
         )
-        await self._metadata_store.add_task(new_task)
-        logger.info(f"Task submitted: {task_id} (Type: {task_type}, Name: {name})")
+        logger.info(f"Submitting task {task_id} ({name}, type: {task_type})")
+        await self.metadata_store.add_task(new_task)
+        logger.debug(f"Task {task_id} added to metadata store.")
 
-        # If it's an agent task and agentkit is available, send it to the Dramatiq queue
-        if task_type == "agent_run" and Agent is not None:
-            logger.info(f"Sending agent task {task_id} to Dramatiq queue.")
-            # Send only task ID and input data
-            execute_agent_task_actor.send(task_id, new_task.input_data)
-        elif task_type == "agent_run" and Agent is None:
-            logger.error(f"Cannot queue agent task {task_id}: agentkit not installed.")
-            # Mark as failed immediately if agentkit is missing
-            # Fetch task to update error field, then update status
-            task_to_fail = self._metadata_store._tasks.get(task_id) # Use self._metadata_store
-            if task_to_fail:
-                # Use the task's update_status helper
-                task_to_fail.update_status(TaskStatus.FAILED, error_msg="Agent execution failed: agentkit not installed.")
-                # No need to call store.update_task_status separately now
-            else:
-                 # If task somehow disappeared between add and here, log it
-                 logger.error(f"Task {task_id} not found in store immediately after creation during agentkit check.")
-
+        # Dispatch agent tasks to the broker
+        if task_type == "agent_run":
+            goal = input_data.get("goal", "No goal specified") # Extract goal
+            logger.info(f"Dispatching agent task {task_id} to broker with goal: '{goal}'")
+            # Send message to the actor
+            execute_agent_task_actor.send(task_id=task_id, goal=goal, input_data=input_data)
+        else:
+            # Handle other task types if necessary (e.g., simple execution, workflows)
+            # For now, non-agent tasks remain PENDING unless a worker processes them
+            logger.warning(f"Task {task_id} is non-agent type '{task_type}', requires specific worker processing (not implemented).")
+            # Optionally, mark as failed or completed if it's a simple task type
+            # await self.metadata_store.update_task_status(task_id, TaskStatus.COMPLETED) # Example
 
         return new_task
 
+    # Removed start/stop methods as they are not needed with Dramatiq
 
-# Define the Dramatiq actor - now a thin wrapper around the core logic
-@dramatiq.actor(time_limit=300_000, store_results=True)
-async def execute_agent_task_actor(
-    task_id: str,
-    task_input_data: Dict[str, Any],
-) -> None:
+
+# --- Agent Task Execution Logic ---
+
+async def _run_agent_task_logic(task_id: str, goal: str, input_data: Dict[str, Any]):
+    """Helper function containing the core logic for running an agent task."""
+    logger.info(f"Starting agent task logic for task_id: {task_id}, goal: {goal}")
+    metadata_store = get_metadata_store() # Get store instance via dependency function
+    mcp_client = get_mcp_client() # Get MCP client instance
+
+    try:
+        await metadata_store.update_task_status(task_id, TaskStatus.RUNNING)
+
+        # --- Agent Setup ---
+        memory_instance = ShortTermMemory()
+        tool_registry_instance = ToolRegistry()
+        security_manager_instance = DefaultSecurityManager()
+
+        # Instantiate LLM Client and Planner based on config
+        try:
+            llm_client_instance = get_llm_client()
+            planner_instance = get_planner(llm_client=llm_client_instance)
+        except Exception as config_err:
+             logger.exception(f"Failed to configure LLM/Planner for task {task_id}: {config_err}")
+             await metadata_store.update_task_output(
+                 task_id=task_id,
+                 result={"error": "Agent configuration failed."},
+                 error_message=f"LLM/Planner setup error: {config_err}"
+             )
+             await metadata_store.update_task_status(task_id, TaskStatus.FAILED)
+             return # Stop execution if config fails
+
+        # Inject MCP Proxy Tool if MCP client is available
+        if mcp_client and mcp_client.is_available():
+             try:
+                 from agentkit.tools.mcp_proxy import mcp_proxy_tool_spec # Import spec
+                 proxy_tool = MCPProxyTool(mcp_client=mcp_client, spec=mcp_proxy_tool_spec)
+                 tool_registry_instance.register_tool(proxy_tool)
+                 logger.info(f"MCP Proxy Tool injected for task {task_id}")
+             except ImportError:
+                 logger.warning("MCP Proxy Tool spec not found in agentkit. Skipping injection.")
+             except Exception as proxy_err:
+                 logger.exception(f"Failed to register MCP Proxy tool for task {task_id}: {proxy_err}")
+                 # Decide if this is fatal - maybe just log and continue without proxy?
+
+        agent = Agent(
+            memory=memory_instance,
+            planner=planner_instance, # Use configured planner
+            tool_manager=tool_registry_instance,
+            security_manager=security_manager_instance,
+        )
+        # --- Agent Execution ---
+        agent_result = await agent.run(goal=goal)
+        logger.info(f"Agent task {task_id} completed. Result: {agent_result}")
+
+        # --- Update Metadata Store ---
+        final_status = TaskStatus.COMPLETED if agent_result.get("status") != "Failed" else TaskStatus.FAILED
+        task_result_data = {
+            "agent_outcome": agent_result,
+            "memory_history": agent.memory.get_history(), # Include memory
+        }
+        error_message = agent_result.get("reason") if final_status == TaskStatus.FAILED else None
+
+        await metadata_store.update_task_output(
+            task_id=task_id,
+            result=task_result_data,
+            error_message=error_message
+        )
+        # Explicitly update status after output, as update_task_output might not set final status
+        await metadata_store.update_task_status(task_id, final_status)
+        logger.info(f"Updated metadata for task {task_id} with status {final_status}")
+
+    except TaskNotFoundError:
+        logger.error(f"Task {task_id} not found during agent execution.")
+        # Cannot update task if not found
+    except Exception as e:
+        logger.exception(f"Agent task {task_id} failed with unexpected error: {e}")
+        try:
+            # Attempt to mark the task as failed in the store
+            await metadata_store.update_task_output(
+                task_id=task_id,
+                result={"error": "Agent execution failed unexpectedly."},
+                error_message=str(e)
+            )
+            await metadata_store.update_task_status(task_id, TaskStatus.FAILED)
+        except TaskNotFoundError:
+             logger.error(f"Task {task_id} not found when trying to report agent failure.")
+        except Exception as store_e:
+            logger.exception(f"Failed to update metadata store for failed task {task_id}: {store_e}")
+
+# --- Dramatiq Actor Definition ---
+
+@dramatiq.actor() # Use global decorator, removed store_results option
+async def execute_agent_task_actor(task_id: str, goal: str, input_data: Dict[str, Any]):
     """
-    Dramatiq actor wrapper for agent task execution.
-    Fetches dependencies and calls the core logic function.
+    Dramatiq actor that executes the agent task logic asynchronously.
     """
-    logger.info(f"[Actor Wrapper] Received agent task: {task_id}")
-    # Fetch dependencies using getters
-    metadata_store = get_metadata_store()
-    mcp_client = get_mcp_client()
+    # Load testing hook
+    mock_delay_ms_str = os.getenv("OPS_CORE_LOAD_TEST_MOCK_AGENT_DELAY_MS")
+    if mock_delay_ms_str:
+        try:
+            delay_ms = int(mock_delay_ms_str)
+            logger.warning(f"LOAD TEST MODE: Mocking agent execution with {delay_ms}ms delay for task {task_id}.")
+            await asyncio.sleep(delay_ms / 1000.0)
+            # Simulate success for load testing
+            metadata_store = get_metadata_store()
+            await metadata_store.update_task_output(task_id=task_id, result={"mock_result": "load_test_success"})
+            await metadata_store.update_task_status(task_id, TaskStatus.COMPLETED)
+            logger.info(f"LOAD TEST MODE: Mock agent task {task_id} completed.")
+            return # Skip real execution
+        except ValueError:
+            logger.error(f"Invalid OPS_CORE_LOAD_TEST_MOCK_AGENT_DELAY_MS value: {mock_delay_ms_str}. Proceeding with real execution.")
+        except Exception as mock_err:
+             logger.exception(f"Error during mock agent execution for task {task_id}: {mock_err}")
+             # Attempt to mark as failed even in mock mode
+             try:
+                 metadata_store = get_metadata_store()
+                 await metadata_store.update_task_output(task_id=task_id, error_message=f"Mock execution error: {mock_err}")
+                 await metadata_store.update_task_status(task_id, TaskStatus.FAILED)
+             except Exception:
+                 logger.exception(f"Failed to update store after mock execution error for task {task_id}")
+             return # Stop execution
 
-    # Call the core logic function
-    await _run_agent_task_logic(
-        task_id=task_id,
-        task_input_data=task_input_data,
-        metadata_store=metadata_store,
-        mcp_client=mcp_client
-    )
-
-    # Removed _process_tasks method - agent tasks handled by Dramatiq workers
-
-    async def start(self) -> None:
-        """Placeholder start method. Dramatiq workers are started separately."""
-        logger.info("Scheduler start method called (no internal loop to start).")
-        # In a real app, this might initialize connections or other resources if needed.
-        pass
-
-    async def stop(self) -> None:
-        """Placeholder stop method. Dramatiq workers are stopped separately."""
-        logger.info("Scheduler stop method called (no internal loop to stop).")
-        # In a real app, this might clean up resources or connections.
-        pass
-
-
-    async def get_task_status(self, task_id: str) -> Optional[TaskStatus]:
-        """
-        Retrieves the status of a specific task.
-
-        Args:
-            task_id: The ID of the task.
-
-        Returns:
-            The TaskStatus if the task is found, otherwise None.
-        """
-        task = await self._metadata_store.get_task(task_id)
-        return task.status if task else None
+    # Call the actual logic
+    await _run_agent_task_logic(task_id=task_id, goal=goal, input_data=input_data)

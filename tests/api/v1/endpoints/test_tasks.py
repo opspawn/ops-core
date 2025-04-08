@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 # Patching the singleton instances directly for now.
 
 # Mock the singleton instances BEFORE importing the app or router
-# Import the app first
+# Import the app first (Reverted path)
 from ops_core.main import app
 # Import the dependency functions we need to override
 from ops_core.api.v1.endpoints.tasks import get_scheduler, get_metadata_store
@@ -162,6 +162,24 @@ def test_get_task_not_found():
     mock_metadata_store.get_task.assert_awaited_once_with(task_id)
 
 
+def test_get_task_metadata_store_error():
+    """
+    Test retrieval failure when metadata store raises an exception.
+    """
+    # Arrange
+    task_id = "error_task_id"
+    error_message = "Database connection failed"
+    mock_metadata_store.get_task.side_effect = Exception(error_message)
+
+    # Act
+    response = client.get(f"/api/v1/tasks/{task_id}")
+
+    # Assert
+    assert response.status_code == 500
+    assert f"Failed to retrieve task: {error_message}" in response.json()["detail"]
+    mock_metadata_store.get_task.assert_awaited_once_with(task_id)
+
+
 def test_list_tasks_success_empty():
     """
     Test successful listing of tasks when none exist via GET /tasks/.
@@ -205,5 +223,60 @@ def test_list_tasks_success_with_data():
     assert response_data["tasks"][0]["status"] == TaskStatus.COMPLETED.value
     mock_metadata_store.list_tasks.assert_awaited_once()
 
-# TODO: Add tests for invalid input data on POST /tasks/ if validation is added
+
+def test_list_tasks_metadata_store_error():
+    """
+    Test listing failure when metadata store raises an exception.
+    """
+    # Arrange
+    error_message = "Failed to query tasks"
+    mock_metadata_store.list_tasks.side_effect = Exception(error_message)
+
+    # Act
+    response = client.get("/api/v1/tasks/")
+
+    # Assert
+    assert response.status_code == 500
+    assert f"Failed to list tasks: {error_message}" in response.json()["detail"]
+    mock_metadata_store.list_tasks.assert_awaited_once()
+
+
+# --- Input Validation Tests ---
+
+def test_create_task_missing_task_type():
+    """
+    Test task creation with missing 'task_type' field.
+    """
+    # Arrange
+    invalid_task_data = {"input_data": {"prompt": "hello"}} # Missing task_type
+
+    # Act
+    response = client.post("/api/v1/tasks/", json=invalid_task_data)
+
+    # Assert
+    assert response.status_code == 422 # Unprocessable Entity
+    response_data = response.json()
+    assert "detail" in response_data
+    assert any(err["msg"] == "Field required" and "task_type" in err["loc"] for err in response_data["detail"])
+
+
+def test_create_task_invalid_input_data_type():
+    """
+    Test task creation with invalid type for 'input_data' (should be dict).
+    """
+    # Arrange
+    invalid_task_data = {"task_type": "agent_run", "input_data": "not_a_dictionary"}
+
+    # Act
+    response = client.post("/api/v1/tasks/", json=invalid_task_data)
+
+    # Assert
+    assert response.status_code == 422 # Unprocessable Entity
+    response_data = response.json()
+    assert "detail" in response_data
+    # Pydantic v2 message for wrong type
+    assert any("Input should be a valid dictionary" in err["msg"] and "input_data" in err["loc"] for err in response_data["detail"])
+
+
+# TODO: Add more specific input validation tests if TaskCreateRequest schema becomes stricter
 # TODO: Add tests for pagination if implemented in list_tasks

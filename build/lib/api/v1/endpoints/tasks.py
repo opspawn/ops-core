@@ -62,31 +62,37 @@ def get_scheduler(
 
 
 # --- Router ---
-router = APIRouter()
+router = APIRouter(
+    prefix="/v1", # Add prefix for versioning
+    tags=["Tasks"], # Add a tag for grouping endpoints in OpenAPI UI
+)
 
 
 # --- Endpoints ---
 
 @router.post(
-    "/tasks/",
+    "/tasks/", # Note: prefix="/v1" is added in APIRouter
     response_model=TaskResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Submit a new task",
-    description="Submits a new task to the scheduler for execution.",
+    summary="Submit a New Task",
+    description="Accepts task details and submits it to the Ops-Core scheduler for asynchronous execution. Returns the initial state of the created task.",
+    responses={
+        status.HTTP_201_CREATED: {"description": "Task successfully submitted."},
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {"description": "Invalid input data provided."},
+        status.HTTP_500_INTERNAL_SERVER_ERROR: {"description": "Internal server error during task submission."},
+    },
 )
 async def create_task(
     task_request: TaskCreateRequest,
     scheduler: InMemoryScheduler = Depends(get_scheduler),
 ) -> Task:
     """
-    Submits a new task to the scheduler.
+    Endpoint to submit a new task to the Ops-Core scheduler.
 
-    Args:
-        task_request: The details of the task to create.
-        scheduler: The scheduler instance (injected dependency).
-
-    Returns:
-        The created Task object.
+    - Receives task type and input data.
+    - Generates a unique task ID (handled by the store/scheduler).
+    - Submits the task to the configured scheduler via dependency injection.
+    - Returns the newly created task object with its initial status (e.g., PENDING).
     """
     # Reason: Generate a default name and use the scheduler's submit method.
     try:
@@ -107,57 +113,75 @@ async def create_task(
 
 
 @router.get(
-    "/tasks/{task_id}",
+    "/tasks/{task_id}", # Note: prefix="/v1" is added in APIRouter
     response_model=TaskResponse,
-    summary="Get task status",
-    description="Retrieves the details and status of a specific task by its ID.",
+    summary="Get Task Status and Details",
+    description="Retrieves the complete details and current status of a specific task using its unique ID.",
+    responses={
+        status.HTTP_200_OK: {"description": "Task details successfully retrieved."},
+        status.HTTP_404_NOT_FOUND: {"description": "Task with the specified ID was not found."},
+        status.HTTP_500_INTERNAL_SERVER_ERROR: {"description": "Internal server error during task retrieval."},
+    },
 )
 async def get_task(
     task_id: str,
     metadata_store: InMemoryMetadataStore = Depends(get_metadata_store),
 ) -> Task:
     """
-    Retrieves a specific task by its ID.
+    Endpoint to retrieve a specific task by its unique ID.
 
-    Args:
-        task_id: The ID of the task to retrieve.
-        metadata_store: The metadata store instance (injected dependency).
-
-    Returns:
-        The requested Task object.
-
-    Raises:
-        HTTPException: If the task with the given ID is not found.
+    - Fetches task details from the metadata store.
+    - Returns the complete task object if found.
+    - Raises a 404 error if the task ID does not exist.
     """
     # Reason: Use the metadata store to fetch the task details.
-    task = await metadata_store.get_task(task_id)
-    if task is None:
+    try:
+        task = await metadata_store.get_task(task_id)
+        if task is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Task with ID '{task_id}' not found.",
+            )
+        return task
+    except HTTPException:
+        # Re-raise HTTPException (like 404) directly
+        raise
+    except Exception as e:
+        # TODO: Add more specific error handling
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Task with ID '{task_id}' not found.",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve task: {e}",
         )
-    return task
 
 
 @router.get(
-    "/tasks/",
+    "/tasks/", # Note: prefix="/v1" is added in APIRouter
     response_model=TaskListResponse,
-    summary="List all tasks",
-    description="Retrieves a list of all tasks known to the system.",
+    summary="List All Tasks",
+    description="Retrieves a list of all tasks currently managed by the Ops-Core system. Future versions may include filtering and pagination.",
+    responses={
+        status.HTTP_200_OK: {"description": "List of tasks successfully retrieved."},
+        status.HTTP_500_INTERNAL_SERVER_ERROR: {"description": "Internal server error during task listing."},
+    },
 )
 async def list_tasks(
     metadata_store: InMemoryMetadataStore = Depends(get_metadata_store),
-    # TODO: Add pagination parameters (skip, limit)
+    # TODO: Add pagination parameters (skip: int = 0, limit: int = 100)
 ) -> TaskListResponse:
     """
-    Retrieves a list of all tasks.
+    Endpoint to retrieve a list of all tasks.
 
-    Args:
-        metadata_store: The metadata store instance (injected dependency).
-
-    Returns:
-        A response object containing the list of tasks and the total count.
+    - Fetches all tasks from the metadata store.
+    - Returns a response containing the list of task objects and the total count.
+    - (Pagination parameters `skip` and `limit` can be added later).
     """
     # Reason: Use the metadata store to get all tasks. Pagination should be added later.
-    tasks = await metadata_store.list_tasks()
-    return TaskListResponse(tasks=tasks, total=len(tasks))
+    try:
+        tasks = await metadata_store.list_tasks()
+        return TaskListResponse(tasks=tasks, total=len(tasks))
+    except Exception as e:
+        # TODO: Add more specific error handling
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list tasks: {e}",
+        )

@@ -15,6 +15,9 @@ dependencies = [
     "anthropic",
     "python-dotenv",
     "PyYAML",
+    "openai>=1.0.0,<2.0.0", # Added for agentkit client instantiation
+    "google-genai", # Use the new recommended SDK
+    # "protobuf==4.25.3", # Removed pin, let new SDK manage dependencies
     "fastapi>=0.110.0", # Added for REST API
     "uvicorn[standard]>=0.29.0", # Added for running FastAPI server
     "grpcio==1.62.1", # Pinned for gRPC runtime

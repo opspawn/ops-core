@@ -221,7 +221,11 @@ async def test_rest_api_async_agent_workflow_success(
 
     # --- Assert ---
     # 3. Verify the actor's send method was called correctly
-    mock_send.assert_called_once_with(task_id, task_data["input_data"])
+    mock_send.assert_called_once_with(
+        task_id=task_id,
+        goal=task_data["input_data"].get("goal", "No goal specified"),
+        input_data=task_data["input_data"]
+    )
 
     # 4. Verify the task status remains PENDING in the store (actor execution is mocked)
     # Use asyncio.sleep for a very short duration to allow potential background processing
@@ -276,7 +280,11 @@ async def test_grpc_api_async_agent_workflow_success(
 
      # --- Assert ---
     # 3. Verify the actor's send method was called correctly
-    mock_send.assert_called_once_with(task_id, input_dict) # Input data is dict here
+    mock_send.assert_called_once_with(
+        task_id=task_id,
+        goal=input_dict.get("goal", "No goal specified"),
+        input_data=input_dict
+    ) # Input data is dict here
 
     # 4. Verify the task status remains PENDING in the store (actor execution is mocked)
     await asyncio.sleep(0.01)
@@ -324,7 +332,11 @@ async def test_rest_api_async_agent_workflow_failure(
 
     # --- Assert ---
     # 3. Verify the actor's send method was called correctly
-    mock_send.assert_called_once_with(task_id, task_data["input_data"])
+    mock_send.assert_called_once_with(
+        task_id=task_id,
+        goal=task_data["input_data"].get("goal", "No goal specified"),
+        input_data=task_data["input_data"]
+    )
 
     # 4. Verify the task status remains PENDING in the store (actor execution is mocked)
     await asyncio.sleep(0.01)

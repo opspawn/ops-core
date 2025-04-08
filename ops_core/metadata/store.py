@@ -103,15 +103,16 @@ class InMemoryMetadataStore:
     async def update_task_output(
         self,
         task_id: str,
-        output_data: Optional[Any] = None,
+        result: Optional[Any] = None, # Changed from output_data
         error_message: Optional[str] = None,
     ) -> Task:
         """
-        Updates the output data and/or error message of an existing task.
+        Updates the result data and/or error message of an existing task,
+        and sets the status accordingly (FAILED if error, COMPLETED if result).
 
         Args:
             task_id: The ID of the task to update.
-            output_data: The new output data for the task.
+            result: The new result data for the task.
             error_message: The new error message for the task.
 
         Returns:
@@ -125,11 +126,23 @@ class InMemoryMetadataStore:
             logger.warning(f"Attempted to update output of non-existent task: {task_id}")
             raise TaskNotFoundError(task_id)
 
-        task.output_data = output_data
+        task.result = result # Changed from output_data
         task.error_message = error_message
         task.updated_at = current_utc_time() # Ensure updated_at is set
 
-        logger.info(f"Task output/error updated in store: {task_id}")
+        # Update status based on outcome
+        if error_message:
+            task.status = TaskStatus.FAILED
+            logger.info(f"Task {task_id} updated with error status.")
+        elif result is not None: # Check if result is explicitly provided (even if None)
+             # Consider if result being None should also mean completed? For now, require non-None result.
+             # Let's assume any non-error result means completed for now.
+            task.status = TaskStatus.COMPLETED
+            logger.info(f"Task {task_id} updated with completed status.")
+        # Else: Status remains unchanged if neither result nor error is provided? Or should default to COMPLETED?
+        # Let's stick to explicit updates for now.
+
+        logger.info(f"Task result/error updated in store: {task_id}")
         return task.model_copy(deep=True) # Return a copy of the updated task
 
     async def list_tasks(

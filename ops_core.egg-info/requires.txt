@@ -1,5 +1,0 @@
-pydantic
-mcp
-anthropic
-python-dotenv
-PyYAML

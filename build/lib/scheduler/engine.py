@@ -168,7 +168,8 @@ async def _run_agent_task_logic(
 
         except Exception as setup_err:
              logger.error(f"[Actor] Error setting up agent for task {task_id}: {setup_err}", exc_info=True)
-             task_error = f"Agent setup failed: {setup_err}"
+             # Include exception type and traceback in the error message
+             task_error = f"{type(setup_err).__name__}: {setup_err}\n{traceback.format_exc()}"
              final_status_name = TaskStatus.FAILED.name
 
         # Update status and result/error in the metadata store

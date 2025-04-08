@@ -3,6 +3,8 @@ mcp
 anthropic
 python-dotenv
 PyYAML
+openai<2.0.0,>=1.0.0
+google-genai
 fastapi>=0.110.0
 uvicorn[standard]>=0.29.0
 grpcio==1.62.1

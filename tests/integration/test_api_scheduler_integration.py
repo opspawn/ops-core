@@ -175,7 +175,11 @@ async def test_rest_api_submit_agent_task(
     assert stored_task is not None
 
     # Ensure Dramatiq actor send WAS called by the scheduler's submit_task
-    mock_actor.send.assert_called_once_with(task_id, task_data["input_data"])
+    mock_actor.send.assert_called_once_with(
+        task_id=task_id,
+        goal=task_data["input_data"].get("goal", "No goal specified"),
+        input_data=task_data["input_data"]
+    )
 
 
 @pytest.mark.asyncio
@@ -256,7 +260,11 @@ async def test_grpc_api_submit_agent_task(
     assert stored_task is not None
 
     # Ensure Dramatiq actor send WAS called by the scheduler's submit_task
-    mock_actor.send.assert_called_once_with(task_id, input_dict)
+    mock_actor.send.assert_called_once_with(
+        task_id=task_id,
+        goal=input_dict.get("goal", "No goal specified"),
+        input_data=input_dict
+    )
 
 
 # Removed test_scheduler_triggers_agent_execution as it tested the old

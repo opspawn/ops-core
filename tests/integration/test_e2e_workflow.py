@@ -1,9 +1,10 @@
 import asyncio
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, patch, MagicMock # Added MagicMock import
 import queue # Import the queue module
 
 import pytest
+import dramatiq # Added import
 from dramatiq import Message
 from fastapi.testclient import TestClient
 
@@ -31,7 +32,7 @@ pytestmark = pytest.mark.asyncio
 
 
 @pytest.fixture(scope="function")
-def test_app_components(mock_mcp_client, stub_broker): # Renamed fixture, removed store from args
+def test_app_components(mock_mcp_client): # Removed stub_broker
     """
     Creates FastAPI TestClient, InMemoryMetadataStore, and mocked OpsMcpClient
     with dependencies correctly overridden for integration testing.
@@ -54,25 +55,25 @@ def test_app_components(mock_mcp_client, stub_broker): # Renamed fixture, remove
     # which we patch elsewhere or rely on Dramatiq's test setup.
     # If tests fail, revisit how the broker is accessed by the scheduler/API.
     # Patch the config loader to prevent real env var resolution during client init
-    # Patch the broker instance *where the actor uses it* (in the engine module)
+    # Patch the config loader and the actor's send method
     with patch("ops_core.mcp_client.client.get_resolved_mcp_config", return_value=McpConfig(servers={})), \
-         patch("ops_core.scheduler.engine.broker", stub_broker): # Corrected patch target
+         patch("ops_core.scheduler.engine.execute_agent_task_actor.send", MagicMock()) as mock_actor_send: # Patch send directly
         test_client = TestClient(app)
-        # Yield all components needed by the tests
-        yield test_client, test_store, test_scheduler, mock_mcp_client
+        # Yield all components needed by the tests, including the mock send
+        yield test_client, test_store, test_scheduler, mock_mcp_client, mock_actor_send
 
-    # Cleanup overrides after test
+    # Cleanup overrides
     app.dependency_overrides = {}
 
 
 async def test_e2e_successful_agent_task(
-    test_app_components, stub_broker # Use the combined fixture
+    test_app_components # Use the combined fixture, stub_broker no longer needed
 ):
     """
     Test the full flow for a successful agent task:
-    API -> Scheduler -> Broker -> Manual Actor Logic -> Store Update
+    API -> Scheduler -> (Mocked) Broker Send -> Manual Actor Logic -> Store Update
     """
-    test_client, test_store, test_scheduler, mock_mcp_client = test_app_components # Unpack the fixture result
+    test_client, test_store, test_scheduler, mock_mcp_client, mock_actor_send = test_app_components # Unpack the fixture result
 
     task_input = {"prompt": "Test prompt for success"}
     response = test_client.post("/api/v1/tasks/", json={"task_type": "agent_run", "input_data": task_input})
@@ -96,13 +97,16 @@ async def test_e2e_successful_agent_task(
     mock_agent = AsyncMock(spec=Agent)
     mock_agent.run.return_value = mock_agent_run_result
 
-    # Patch the Agent class within the scope of the logic function
-    with patch("ops_core.scheduler.engine.Agent", return_value=mock_agent) as mock_agent_class: # Corrected patch path
-        # Patch the dependency getters called *within* the logic function
+    # Patch the Agent class and LLM client getter within the scope of the logic function
+    with patch("ops_core.scheduler.engine.Agent", return_value=mock_agent) as mock_agent_class, \
+         patch("ops_core.scheduler.engine.get_llm_client", return_value=MagicMock()) as mock_get_llm: # Patch LLM client getter
+        # Patch the other dependency getters called *within* the logic function
         with patch("ops_core.scheduler.engine.get_metadata_store", return_value=test_store), \
              patch("ops_core.scheduler.engine.get_mcp_client", return_value=mock_mcp_client): # Use unpacked components
 
-            await _run_agent_task_logic(task_id, task_input, test_store, mock_mcp_client) # Pass required args
+            # Extract goal from input_data for the call
+            goal = task_input.get("prompt", "Default goal if prompt missing")
+            await _run_agent_task_logic(task_id=task_id, goal=goal, input_data=task_input) # Correct args
 
     # 4. Verify Agent was instantiated and run correctly
     mock_agent_class.assert_called_once()
@@ -119,23 +123,25 @@ async def test_e2e_successful_agent_task(
     final_task = await test_store.get_task(task_id) # Use unpacked store
     assert final_task is not None
     assert final_task.status == TaskStatus.COMPLETED
-    # Check output_data field - memory_history will be empty as the mock agent doesn't use real memory
+    # Check result field - memory_history will be empty as the mock agent doesn't use real memory
     expected_output = {
         "memory_history": [],
         "final_output": mock_agent_run_result["output"], # Expecting just the output string
     }
-    assert final_task.output_data == expected_output
+    assert final_task.result == expected_output # Changed from output_data
     assert final_task.error_message is None # Check error_message field
+    # Assert mock_actor_send was called
+    mock_actor_send.assert_called_once()
 
 
 async def test_e2e_failed_agent_task(
-    test_app_components, stub_broker # Use the combined fixture
+    test_app_components # Use the combined fixture, stub_broker no longer needed
 ):
     """
     Test the full flow for a failed agent task:
-    API -> Scheduler -> Broker -> Manual Actor Logic -> Store Update
+    API -> Scheduler -> (Mocked) Broker Send -> Manual Actor Logic -> Store Update
     """
-    test_client, test_store, test_scheduler, mock_mcp_client = test_app_components # Unpack the fixture result
+    test_client, test_store, test_scheduler, mock_mcp_client, mock_actor_send = test_app_components # Unpack the fixture result
 
     task_input = {"prompt": "Test prompt for failure"}
     response = test_client.post("/api/v1/tasks/", json={"task_type": "agent_run", "input_data": task_input})
@@ -158,11 +164,15 @@ async def test_e2e_failed_agent_task(
     agent_error_message = "Agent simulation failed"
     mock_agent.run.side_effect = Exception(agent_error_message)
 
-    with patch("ops_core.scheduler.engine.Agent", return_value=mock_agent) as mock_agent_class: # Corrected patch path
+    # Patch the Agent class and LLM client getter within the scope of the logic function
+    with patch("ops_core.scheduler.engine.Agent", return_value=mock_agent) as mock_agent_class, \
+         patch("ops_core.scheduler.engine.get_llm_client", return_value=MagicMock()) as mock_get_llm: # Patch LLM client getter
         with patch("ops_core.scheduler.engine.get_metadata_store", return_value=test_store), \
              patch("ops_core.scheduler.engine.get_mcp_client", return_value=mock_mcp_client): # Use unpacked components
 
-            await _run_agent_task_logic(task_id, task_input, test_store, mock_mcp_client) # Pass required args
+            # Extract goal from input_data for the call
+            goal = task_input.get("prompt", "Default goal if prompt missing")
+            await _run_agent_task_logic(task_id=task_id, goal=goal, input_data=task_input) # Correct args
 
     # 4. Verify Agent was instantiated and run correctly
     mock_agent_class.assert_called_once()
@@ -172,18 +182,20 @@ async def test_e2e_failed_agent_task(
     final_task = await test_store.get_task(task_id) # Use unpacked store
     assert final_task is not None
     assert final_task.status == TaskStatus.FAILED
-    assert final_task.output_data is None # Check output_data field
+    assert final_task.result is None # Changed from output_data
     assert agent_error_message in final_task.error_message # Check error_message field
+    # Assert mock_actor_send was called
+    mock_actor_send.assert_called_once()
 
 
 async def test_e2e_mcp_proxy_agent_task(
-    test_app_components, stub_broker # Use the combined fixture
+    test_app_components # Use the combined fixture, stub_broker no longer needed
 ):
     """
     Test the full flow for an agent task using the MCP proxy tool:
-    API -> Scheduler -> Broker -> Manual Actor Logic (Agent calls proxy) -> MCP Client -> Store Update
+    API -> Scheduler -> (Mocked) Broker Send -> Manual Actor Logic (Agent calls proxy) -> MCP Client -> Store Update
     """
-    test_client, test_store, test_scheduler, mock_mcp_client = test_app_components # Unpack the fixture result
+    test_client, test_store, test_scheduler, mock_mcp_client, mock_actor_send = test_app_components # Unpack the fixture result
 
     mcp_server_name = "test-mcp-server"
     mcp_tool_name = "get_weather"
@@ -228,8 +240,10 @@ async def test_e2e_mcp_proxy_agent_task(
     mcp_call_result = {"data": "Sunny in Testville"}
     mock_mcp_client.call_tool = AsyncMock(return_value=mcp_call_result)
 
-    with patch("ops_core.scheduler.engine.Agent", return_value=mock_agent) as mock_agent_class: # Corrected patch path
-        # Patch the dependency getters called *within* the logic function
+    # Patch the Agent class and LLM client getter within the scope of the logic function
+    with patch("ops_core.scheduler.engine.Agent", return_value=mock_agent) as mock_agent_class, \
+         patch("ops_core.scheduler.engine.get_llm_client", return_value=MagicMock()) as mock_get_llm: # Patch LLM client getter
+        # Patch the other dependency getters called *within* the logic function
         with patch("ops_core.scheduler.engine.get_metadata_store", return_value=test_store), \
              patch("ops_core.scheduler.engine.get_mcp_client", return_value=mock_mcp_client): # Use unpacked components
 
@@ -237,7 +251,9 @@ async def test_e2e_mcp_proxy_agent_task(
             # MCPProxyTool instance that gets created inside _run_agent_task_logic.
             # The easiest way is to let _run_agent_task_logic run, and it should
             # use the mock_mcp_client we injected via the patched getter.
-            await _run_agent_task_logic(task_id, task_input, test_store, mock_mcp_client) # Pass required args
+            # Extract goal from input_data for the call
+            goal = task_input.get("prompt", "Default goal if prompt missing")
+            await _run_agent_task_logic(task_id=task_id, goal=goal, input_data=task_input) # Correct args
 
     # 4. Verify Agent was instantiated and run correctly
     mock_agent_class.assert_called_once()
@@ -283,10 +299,12 @@ async def test_e2e_mcp_proxy_agent_task(
     final_task = await test_store.get_task(task_id) # Use unpacked store
     assert final_task is not None
     assert final_task.status == TaskStatus.COMPLETED
-    # The output_data should be what the mocked Agent.run returned, with empty history
+    # The result should be what the mocked Agent.run returned, with empty history
     expected_output = {
         "memory_history": [],
         "final_output": mock_agent_run_result["output"], # Expecting just the output string
     }
-    assert final_task.output_data == expected_output
+    assert final_task.result == expected_output # Changed from output_data
     assert final_task.error_message is None # Check error_message field
+    # Assert mock_actor_send was called
+    mock_actor_send.assert_called_once()

@@ -6,7 +6,8 @@ from . import tasks_pb2 as tasks__pb2
 
 
 class TaskServiceStub(object):
-    """Service definition for Task management via gRPC
+    """Defines the gRPC service for managing tasks within the Ops-Core system.
+    Provides methods for creating, retrieving, and listing tasks.
     """
 
     def __init__(self, channel):
@@ -33,25 +34,29 @@ class TaskServiceStub(object):
 
 
 class TaskServiceServicer(object):
-    """Service definition for Task management via gRPC
+    """Defines the gRPC service for managing tasks within the Ops-Core system.
+    Provides methods for creating, retrieving, and listing tasks.
     """
 
     def CreateTask(self, request, context):
-        """Creates a new task
+        """Submits a new task to the Ops-Core scheduler for asynchronous execution.
+        Returns the initial state of the created task.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def GetTask(self, request, context):
-        """Retrieves a specific task by ID
+        """Retrieves the complete details and current status of a specific task using its unique ID.
+        Returns the task details or an error if not found.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def ListTasks(self, request, context):
-        """Lists tasks
+        """Retrieves a list of tasks managed by the Ops-Core system.
+        Future versions may support filtering and pagination.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -83,7 +88,8 @@ def add_TaskServiceServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class TaskService(object):
-    """Service definition for Task management via gRPC
+    """Defines the gRPC service for managing tasks within the Ops-Core system.
+    Provides methods for creating, retrieving, and listing tasks.
     """
 
     @staticmethod

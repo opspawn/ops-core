@@ -16,8 +16,9 @@ class TaskStatus(str, Enum):
     FAILED = "failed"
     CANCELLED = "cancelled"
 
+# Function to generate string task IDs (as used previously)
 def generate_task_id() -> str:
-    """Generates a unique task ID."""
+    """Generates a unique task ID string."""
     return f"task_{uuid.uuid4()}"
 
 def current_utc_time() -> datetime:
@@ -26,7 +27,7 @@ def current_utc_time() -> datetime:
 
 class Task(BaseModel):
     """Represents a task managed by the ops-core scheduler."""
-    task_id: str = Field(default_factory=generate_task_id)
+    task_id: str = Field(default_factory=generate_task_id) # Reverted to str and string factory
     task_type: str # The type or category of the task (e.g., 'agent_run')
     name: Optional[str] = None # Optional human-readable name
     status: TaskStatus = Field(default=TaskStatus.PENDING)
@@ -35,8 +36,8 @@ class Task(BaseModel):
     scheduled_at: Optional[datetime] = None # When the task is scheduled to run
     started_at: Optional[datetime] = None # When the task actually started
     completed_at: Optional[datetime] = None # When the task finished (completed, failed, or cancelled)
-    input_data: Optional[Dict[str, Any]] = None # Input parameters for the task
-    output_data: Optional[Any] = None # Result or output of the task (can be any type)
+    input_data: Dict[str, Any] = Field(default_factory=dict) # Changed default to {}
+    result: Optional[Any] = None # Renamed from output_data
     error_message: Optional[str] = None # Store error details if status is FAILED
     agent_id: Optional[str] = None # ID of the agentkit agent to execute, if applicable
     workflow_id: Optional[str] = None # ID of the parent workflow, if part of one
