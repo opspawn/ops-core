@@ -5,12 +5,14 @@ import queue # Import the queue module
 
 import pytest
 import dramatiq # Added import
+from agentkit.core.interfaces.llm_client import BaseLlmClient # Import for mock spec
 from dramatiq import Message
 from fastapi.testclient import TestClient
 
 from agentkit.core.agent import Agent
 from agentkit.memory.short_term import ShortTermMemory
 from agentkit.planning.simple_planner import SimplePlanner
+from agentkit.planning.react_planner import ReActPlanner # Import ReActPlanner
 from agentkit.tools.registry import ToolRegistry
 from ops_core.models.tasks import Task, TaskStatus # Reverted import path
 from ops_core.dependencies import get_mcp_client, get_metadata_store # Reverted import path
@@ -29,6 +31,9 @@ from ops_core.metadata.store import InMemoryMetadataStore # Import needed for in
 
 # Mark all tests in this module as asyncio
 pytestmark = pytest.mark.asyncio
+
+# Import the actual OpsMcpClient to use its spec correctly
+from ops_core.mcp_client.client import OpsMcpClient
 
 
 @pytest.fixture(scope="function")
@@ -55,6 +60,9 @@ def test_app_components(mock_mcp_client): # Removed stub_broker
     # which we patch elsewhere or rely on Dramatiq's test setup.
     # If tests fail, revisit how the broker is accessed by the scheduler/API.
     # Patch the config loader to prevent real env var resolution during client init
+    # Configure the mock MCP client to have the '_is_running' attribute
+    mock_mcp_client._is_running = True
+
     # Patch the config loader and the actor's send method
     with patch("ops_core.mcp_client.client.get_resolved_mcp_config", return_value=McpConfig(servers={})), \
          patch("ops_core.scheduler.engine.execute_agent_task_actor.send", MagicMock()) as mock_actor_send: # Patch send directly
@@ -95,11 +103,17 @@ async def test_e2e_successful_agent_task(
     #    Use task_id and task_input obtained after the API call.
     mock_agent_run_result = {"output": "Mock agent success", "history": ["step 1", "step 2"]}
     mock_agent = AsyncMock(spec=Agent)
-    mock_agent.run.return_value = mock_agent_run_result
+    # Use side_effect with an async function to return the result dict
+    async def mock_run_side_effect(*args, **kwargs):
+        return mock_agent_run_result
+    mock_agent.run.side_effect = mock_run_side_effect
+    # Configure the memory attribute and its get_history method
+    mock_agent.memory = MagicMock()
+    mock_agent.memory.get_history.return_value = [] # Expected history is empty in this test
 
     # Patch the Agent class and LLM client getter within the scope of the logic function
     with patch("ops_core.scheduler.engine.Agent", return_value=mock_agent) as mock_agent_class, \
-         patch("ops_core.scheduler.engine.get_llm_client", return_value=MagicMock()) as mock_get_llm: # Patch LLM client getter
+         patch("ops_core.scheduler.engine.get_llm_client", return_value=MagicMock(spec=BaseLlmClient)) as mock_get_llm: # Patch LLM client getter with spec
         # Patch the other dependency getters called *within* the logic function
         with patch("ops_core.scheduler.engine.get_metadata_store", return_value=test_store), \
              patch("ops_core.scheduler.engine.get_mcp_client", return_value=mock_mcp_client): # Use unpacked components
@@ -112,7 +126,8 @@ async def test_e2e_successful_agent_task(
     mock_agent_class.assert_called_once()
     # Check if Agent was called with expected interface implementations
     call_args, call_kwargs = mock_agent_class.call_args
-    assert isinstance(call_kwargs.get("planner"), SimplePlanner)
+    # Planner defaults to ReActPlanner now based on get_planner logic
+    assert isinstance(call_kwargs.get("planner"), ReActPlanner)
     assert isinstance(call_kwargs.get("memory"), ShortTermMemory)
     assert isinstance(call_kwargs.get("tool_manager"), ToolRegistry)
     # TODO: Add check for security manager if implemented
@@ -123,12 +138,13 @@ async def test_e2e_successful_agent_task(
     final_task = await test_store.get_task(task_id) # Use unpacked store
     assert final_task is not None
     assert final_task.status == TaskStatus.COMPLETED
-    # Check result field - memory_history will be empty as the mock agent doesn't use real memory
+    # Check result field - memory_history comes from mock_agent.memory
+    # agent_outcome should be the full result dict from mock_agent.run
     expected_output = {
+        "agent_outcome": mock_agent_run_result,
         "memory_history": [],
-        "final_output": mock_agent_run_result["output"], # Expecting just the output string
     }
-    assert final_task.result == expected_output # Changed from output_data
+    assert final_task.result == expected_output
     assert final_task.error_message is None # Check error_message field
     # Assert mock_actor_send was called
     mock_actor_send.assert_called_once()
@@ -166,7 +182,7 @@ async def test_e2e_failed_agent_task(
 
     # Patch the Agent class and LLM client getter within the scope of the logic function
     with patch("ops_core.scheduler.engine.Agent", return_value=mock_agent) as mock_agent_class, \
-         patch("ops_core.scheduler.engine.get_llm_client", return_value=MagicMock()) as mock_get_llm: # Patch LLM client getter
+         patch("ops_core.scheduler.engine.get_llm_client", return_value=MagicMock(spec=BaseLlmClient)) as mock_get_llm: # Patch LLM client getter with spec
         with patch("ops_core.scheduler.engine.get_metadata_store", return_value=test_store), \
              patch("ops_core.scheduler.engine.get_mcp_client", return_value=mock_mcp_client): # Use unpacked components
 
@@ -182,8 +198,11 @@ async def test_e2e_failed_agent_task(
     final_task = await test_store.get_task(task_id) # Use unpacked store
     assert final_task is not None
     assert final_task.status == TaskStatus.FAILED
-    assert final_task.result is None # Changed from output_data
-    assert agent_error_message in final_task.error_message # Check error_message field
+    # When agent execution fails with an exception, the result field contains an error dict
+    assert final_task.result is not None
+    assert "error" in final_task.result
+    assert "Agent execution failed unexpectedly" in final_task.result["error"]
+    assert agent_error_message in final_task.error_message # Check error_message field matches the exception
     # Assert mock_actor_send was called
     mock_actor_send.assert_called_once()
 
@@ -234,7 +253,13 @@ async def test_e2e_mcp_proxy_agent_task(
     #    via the injected OpsMcpClient.
     mock_agent_run_result = {"output": f"Called MCP tool {mcp_tool_name}", "history": ["step 1: call mcp"]}
     mock_agent = AsyncMock(spec=Agent)
-    mock_agent.run.return_value = mock_agent_run_result
+    # Use side_effect with an async function to return the result dict
+    async def mock_run_mcp_side_effect(*args, **kwargs):
+        return mock_agent_run_result
+    mock_agent.run.side_effect = mock_run_mcp_side_effect
+    # Configure the memory attribute and its get_history method
+    mock_agent.memory = MagicMock()
+    mock_agent.memory.get_history.return_value = [] # Expected history is empty in this test
 
     # Mock the OpsMcpClient's call_tool method BEFORE the logic runs
     mcp_call_result = {"data": "Sunny in Testville"}
@@ -242,7 +267,7 @@ async def test_e2e_mcp_proxy_agent_task(
 
     # Patch the Agent class and LLM client getter within the scope of the logic function
     with patch("ops_core.scheduler.engine.Agent", return_value=mock_agent) as mock_agent_class, \
-         patch("ops_core.scheduler.engine.get_llm_client", return_value=MagicMock()) as mock_get_llm: # Patch LLM client getter
+         patch("ops_core.scheduler.engine.get_llm_client", return_value=MagicMock(spec=BaseLlmClient)) as mock_get_llm: # Patch LLM client getter with spec
         # Patch the other dependency getters called *within* the logic function
         with patch("ops_core.scheduler.engine.get_metadata_store", return_value=test_store), \
              patch("ops_core.scheduler.engine.get_mcp_client", return_value=mock_mcp_client): # Use unpacked components
@@ -301,10 +326,10 @@ async def test_e2e_mcp_proxy_agent_task(
     assert final_task.status == TaskStatus.COMPLETED
     # The result should be what the mocked Agent.run returned, with empty history
     expected_output = {
+        "agent_outcome": mock_agent_run_result,
         "memory_history": [],
-        "final_output": mock_agent_run_result["output"], # Expecting just the output string
     }
-    assert final_task.result == expected_output # Changed from output_data
+    assert final_task.result == expected_output
     assert final_task.error_message is None # Check error_message field
     # Assert mock_actor_send was called
     mock_actor_send.assert_called_once()

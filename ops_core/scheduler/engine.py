@@ -79,14 +79,14 @@ def get_planner(llm_client: BaseLlmClient) -> BasePlanner:
 
     logger.info(f"Instantiating planner of type: {planner_type}")
     if planner_type == "react":
-        # Assuming ReActPlanner takes the client and potentially model name
-        return ReActPlanner(llm_client=llm_client, model_name=model_name)
+        # ReActPlanner only takes the llm_client
+        return ReActPlanner(llm_client=llm_client)
     elif planner_type == "placeholder":
         return PlaceholderPlanner()
     else:
         logger.error(f"Unsupported planner type specified: {planner_type}. Falling back to ReAct.")
         # Fallback or raise error
-        return ReActPlanner(llm_client=llm_client, model_name=model_name)
+        return ReActPlanner(llm_client=llm_client)
 
 
 # --- Scheduler Implementation ---
@@ -172,12 +172,12 @@ async def _run_agent_task_logic(task_id: str, goal: str, input_data: Dict[str, A
              await metadata_store.update_task_status(task_id, TaskStatus.FAILED)
              return # Stop execution if config fails
 
-        # Inject MCP Proxy Tool if MCP client is available
-        if mcp_client and mcp_client.is_available():
+        # Inject MCP Proxy Tool if MCP client is available and running
+        if mcp_client and mcp_client._is_running: # Check internal running flag
              try:
-                 from agentkit.tools.mcp_proxy import mcp_proxy_tool_spec # Import spec
-                 proxy_tool = MCPProxyTool(mcp_client=mcp_client, spec=mcp_proxy_tool_spec)
-                 tool_registry_instance.register_tool(proxy_tool)
+                 # MCPProxyTool defines spec as a class attribute, don't pass it to init
+                 proxy_tool = MCPProxyTool(mcp_client=mcp_client)
+                 tool_registry_instance.add_tool(proxy_tool) # Correct method name is add_tool
                  logger.info(f"MCP Proxy Tool injected for task {task_id}")
              except ImportError:
                  logger.warning("MCP Proxy Tool spec not found in agentkit. Skipping injection.")
