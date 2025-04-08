@@ -9,6 +9,7 @@ and routes requests (call_tool, read_resource) to the appropriate server.
 import asyncio
 import sys
 import os
+from asyncio import TimeoutError as AsyncTimeoutError # Import TimeoutError specifically
 import logging
 import subprocess # For process termination
 from typing import Optional, List, Dict, Any, Tuple
@@ -21,7 +22,8 @@ try:
     # Import base types, but request/response types might be implicitly handled by session methods
     from mcp.types import (
         Tool, Resource, ResourceTemplate,
-        TextContent, ImageContent, EmbeddedResource
+        TextContent, ImageContent, EmbeddedResource,
+        ErrorData # Ensure ErrorData is imported for timeout handling
     )
     # Define expected response types locally if needed for type hinting,
     # otherwise rely on type inference or forward references.
@@ -217,10 +219,22 @@ class OpsMcpClient:
         """
         logger.info(f"Routing call_tool request: server='{server_name}', tool='{tool_name}', args={arguments}")
         session = await self.get_session(server_name)
+        timeout = self._config.mcp_call_tool_timeout_seconds
+        logger.debug(f"Using timeout of {timeout} seconds for call_tool on '{server_name}'.")
         try:
-            response = await session.call_tool(tool_name, arguments)
+            response = await asyncio.wait_for(
+                session.call_tool(tool_name, arguments),
+                timeout=timeout
+            )
             logger.debug(f"call_tool response from '{server_name}': isError={response.isError}, content_types={[type(c).__name__ for c in response.content]}")
             return response
+        except AsyncTimeoutError:
+            error_msg = f"Timeout ({timeout}s) calling tool '{tool_name}' on server '{server_name}'."
+            logger.error(error_msg)
+            # Re-raise as an McpError for consistent error handling upstream
+            # McpError requires an ErrorData object.
+            timeout_error_data = ErrorData(code=-1, message=error_msg) # Use placeholder code
+            raise McpError(timeout_error_data) from None # Use 'from None' to avoid chaining the TimeoutError
         except McpError as e:
             logger.error(f"MCP Error calling tool '{tool_name}' on server '{server_name}': {e}", exc_info=True)
             raise

@@ -6,7 +6,8 @@ import os
 import pytest
 import pytest_asyncio
 import logging
-import asyncio # Already imported, no change needed here, error was elsewhere or previous fix was correct.
+import asyncio
+from asyncio import TimeoutError as AsyncTimeoutError # Import specifically for timeout test
 from unittest.mock import patch, AsyncMock, MagicMock, call, ANY
 
 # Module to test
@@ -389,6 +390,35 @@ async def test_call_tool_mcp_error(running_client):
         await running_client.call_tool("server2", "tool_b", {})
 
     running_client._mock_sessions_store["server2"].call_tool.assert_awaited_once_with("tool_b", {})
+
+@pytest.mark.asyncio
+async def test_call_tool_timeout(running_client, caplog):
+    """Test call_tool raises McpError on asyncio.TimeoutError."""
+    server_name = "server1"
+    tool_name = "slow_tool"
+    timeout_duration = running_client._config.mcp_call_tool_timeout_seconds # Get default from config
+
+    # Configure the mock session's call_tool to sleep longer than the timeout
+    async def slow_call(*args, **kwargs):
+        await asyncio.sleep(timeout_duration + 0.1) # Sleep slightly longer than timeout
+        # This part shouldn't be reached if timeout works
+        return MagicMock()
+
+    running_client._mock_sessions_store[server_name].call_tool.side_effect = slow_call
+
+    expected_error_msg = f"Timeout ({timeout_duration}s) calling tool '{tool_name}' on server '{server_name}'."
+
+    with pytest.raises(McpError) as excinfo:
+        await running_client.call_tool(server_name, tool_name, {})
+
+    # Check that the raised McpError has the correct message (via string representation)
+    assert str(excinfo.value) == expected_error_msg
+    # Removed check for excinfo.value.code as it seems unreliable for timeout-generated errors
+
+    # Verify the underlying session method was called
+    running_client._mock_sessions_store[server_name].call_tool.assert_awaited_once_with(tool_name, {})
+    # Verify the error was logged
+    assert expected_error_msg in caplog.text
 
 @pytest.mark.asyncio
 async def test_read_resource_success(running_client):

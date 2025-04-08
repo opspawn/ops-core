@@ -33,6 +33,7 @@ class McpServerConfig(BaseModel):
 class McpConfig(BaseModel):
     """Pydantic model for validating the overall MCP configuration structure."""
     mcp_server_base_path: Optional[str] = None
+    mcp_call_tool_timeout_seconds: float = Field(default=30.0, description="Default timeout in seconds for MCP call_tool requests.")
     # Allow servers to be None initially, validator will default to {}
     servers: Optional[Dict[str, McpServerConfig]] = Field(default_factory=dict)
 
