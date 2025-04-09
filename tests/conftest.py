@@ -4,7 +4,11 @@ Global pytest fixtures and configuration for ops_core tests.
 
 import pytest
 import pytest_asyncio
+import pytest
+import pytest_asyncio
 import asyncio
+import os # Added
+from dotenv import load_dotenv # Added
 from unittest.mock import patch, MagicMock, AsyncMock
 
 from dramatiq.brokers.stub import StubBroker
@@ -19,12 +23,22 @@ from ops_core.metadata.store import InMemoryMetadataStore # Keep for other tests
 from ops_core.mcp_client.client import OpsMcpClient
 from ops_core.scheduler.engine import execute_agent_task_actor # Import actor to get queue name
 
+# Load environment variables from .env file in the project root
+# This ensures DATABASE_URL is available for tests
+dotenv_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
+load_dotenv(dotenv_path=dotenv_path)
+
+
 # --- Database Fixtures for SqlMetadataStore Tests ---
 
 # Use a separate test database URL if possible, or ensure clean state
 # For simplicity here, we'll use the default but manage tables.
 # In a real scenario, use a dedicated test DB URL via env var.
-TEST_DATABASE_URL = get_resolved_mcp_config().database_url
+# TEST_DATABASE_URL = get_resolved_mcp_config().database_url # Original attempt
+TEST_DATABASE_URL = os.getenv("DATABASE_URL") # Directly get from loaded env
+if not TEST_DATABASE_URL:
+    raise ValueError("DATABASE_URL environment variable not set or .env file not found.")
+
 # Modify URL slightly if needed for testing (e.g., different DB name)
 # TEST_DATABASE_URL = TEST_DATABASE_URL.replace("/opspawn_db", "/test_opspawn_db")
 

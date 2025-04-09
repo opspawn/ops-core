@@ -9,7 +9,8 @@ from sqlalchemy.orm import sessionmaker
 from sqlmodel import select, SQLModel # Import SQLModel here
 
 from ops_core.config.loader import get_resolved_mcp_config
-from ops_core.models.tasks import Task, TaskStatus
+# Import current_utc_time as well
+from ops_core.models.tasks import Task, TaskStatus, current_utc_time
 from ops_core.metadata.store import BaseMetadataStore, TaskNotFoundError
 
 # Load database URL from config
@@ -31,7 +32,7 @@ async def get_session() -> AsyncSession:
     async with AsyncSessionFactory() as session:
         try:
             yield session
-            await session.commit()
+            # Commit should happen *after* operations in the using block
         except Exception:
             await session.rollback()
             raise
@@ -47,11 +48,15 @@ class SqlMetadataStore(BaseMetadataStore):
         """Adds a new task to the database."""
         async with get_session() as session:
             session.add(task)
-            # No need to commit here, context manager handles it
-            # Removed session.refresh(task) as it's not needed for adding new objects
-            # with client-generated PKs and causes errors.
-            # The task object added to the session will be returned implicitly
-            # after the context manager commits. We return the original task object.
+            await session.commit() # Commit after adding
+            # Refresh might be needed if DB generates defaults/triggers affect the object
+            # Let's try refreshing after commit for consistency.
+            try:
+                await session.refresh(task)
+            except Exception as e:
+                # Handle potential errors during refresh if needed, or log
+                print(f"Warning: Refresh failed after adding task {task.task_id}: {e}")
+                # Decide if this is critical or can be ignored
             return task
 
     async def get_task(self, task_id: str) -> Task:
@@ -62,29 +67,44 @@ class SqlMetadataStore(BaseMetadataStore):
             task = result.scalar_one_or_none()
             if task is None:
                 raise TaskNotFoundError(f"Task with ID '{task_id}' not found.")
+            # No commit needed for read operations
             return task
 
     async def update_task_status(self, task_id: str, status: TaskStatus, error_message: Optional[str] = None) -> Task:
         """Updates the status of an existing task."""
         async with get_session() as session:
-            task = await self.get_task(task_id) # Reuse get_task for existence check
+            # Fetch the task within the current session context
+            statement = select(Task).where(Task.task_id == task_id)
+            db_result = await session.execute(statement) # Rename query result variable
+            task = db_result.scalar_one_or_none() # Use renamed variable
+            if task is None:
+                raise TaskNotFoundError(f"Task with ID '{task_id}' not found.")
+
             # Use the model's helper method to update status and timestamps
-            task.update_status(status, error_msg)
+            task.update_status(status, error_message) # Fix NameError: error_msg -> error_message
             session.add(task) # Add the modified task back to the session
-            await session.flush() # Ensure changes are sent to DB before refresh
-            await session.refresh(task)
+            await session.commit() # Commit after updates
+            await session.refresh(task) # Refresh to get updated state from DB
             return task
 
     async def update_task_output(self, task_id: str, result: Any) -> Task:
         """Updates the output data of a completed task."""
         async with get_session() as session:
-            task = await self.get_task(task_id) # Reuse get_task for existence check
+            # Fetch the task within the current session context
+            statement = select(Task).where(Task.task_id == task_id)
+            db_result = await session.execute(statement) # Rename query result variable
+            task = db_result.scalar_one_or_none() # Use renamed variable
+            if task is None:
+                raise TaskNotFoundError(f"Task with ID '{task_id}' not found.")
+
+            # Assign the input parameter 'result' (which is JSON serializable)
             task.result = result
             # Also update the 'updated_at' timestamp
-            task.updated_at = task.current_utc_time() # Assuming current_utc_time is available or imported
+            # Call the imported function directly
+            task.updated_at = current_utc_time()
             session.add(task)
-            await session.flush()
-            await session.refresh(task)
+            await session.commit() # Commit after updates
+            # await session.refresh(task) # Remove refresh to simplify and see if it resolves commit error
             return task
 
     async def list_tasks(self, limit: int = 100, offset: int = 0, status: Optional[TaskStatus] = None) -> List[Task]:
@@ -95,6 +115,7 @@ class SqlMetadataStore(BaseMetadataStore):
                 statement = statement.where(Task.status == status)
             result = await session.execute(statement)
             tasks = result.scalars().all()
+            # No commit needed for read operations
             return list(tasks)
 
 # Helper function for potential initialization (e.g., creating tables)

@@ -10,6 +10,7 @@ from typing import Optional, Dict, Any, Union, TYPE_CHECKING
 # Use SQLModel for database interaction
 from sqlmodel import Field, SQLModel
 # Import Column and JSON type for database-specific definitions
+import sqlalchemy as sa # Added import
 from sqlalchemy import Column
 from sqlalchemy.dialects.postgresql import JSON
 
@@ -40,12 +41,13 @@ class Task(SQLModel, table=True):
     task_id: str = Field(default_factory=generate_task_id, primary_key=True, index=True)
     task_type: str = Field(index=True) # The type or category of the task (e.g., 'agent_run')
     name: Optional[str] = Field(default=None) # Optional human-readable name
-    status: TaskStatus = Field(default=TaskStatus.PENDING, index=True)
-    created_at: datetime = Field(default_factory=current_utc_time, index=True)
-    updated_at: datetime = Field(default_factory=current_utc_time)
-    scheduled_at: Optional[datetime] = Field(default=None) # When the task is scheduled to run
-    started_at: Optional[datetime] = Field(default=None) # When the task actually started
-    completed_at: Optional[datetime] = Field(default=None) # When the task finished (completed, failed, or cancelled)
+    # Explicitly tell SQLAlchemy *not* to use native ENUM, map to VARCHAR
+    status: TaskStatus = Field(default=TaskStatus.PENDING, index=True, sa_type=sa.Enum(TaskStatus, native_enum=False))
+    created_at: datetime = Field(default_factory=current_utc_time, index=True, sa_type=sa.TIMESTAMP(timezone=True))
+    updated_at: datetime = Field(default_factory=current_utc_time, sa_type=sa.TIMESTAMP(timezone=True))
+    scheduled_at: Optional[datetime] = Field(default=None, sa_type=sa.TIMESTAMP(timezone=True)) # When the task is scheduled to run
+    started_at: Optional[datetime] = Field(default=None, sa_type=sa.TIMESTAMP(timezone=True)) # When the task actually started
+    completed_at: Optional[datetime] = Field(default=None, sa_type=sa.TIMESTAMP(timezone=True)) # When the task finished (completed, failed, or cancelled)
 
     # Use SQLAlchemy Column with JSON type for input_data and result
     # Type hints remain Dict/Any for Pydantic validation, but DB storage is JSON
