@@ -29,10 +29,15 @@ from ops_core.models.tasks import Task, TaskStatus
 from ops_core.metadata.store import InMemoryMetadataStore, TaskNotFoundError # Removed BaseMetadataStore
 import dramatiq # Import dramatiq itself
 from ops_core.models.tasks import Task, TaskStatus
-from ops_core.metadata.store import InMemoryMetadataStore, TaskNotFoundError # Removed BaseMetadataStore
+from ops_core.metadata.base import BaseMetadataStore # Import Base class for type hinting
+from ops_core.metadata.sql_store import SqlMetadataStore # Import SQL store
+from ops_core.metadata.store import TaskNotFoundError # Keep error class
 from ops_core.mcp_client.client import OpsMcpClient
 from ops_core.mcp_client.proxy_tool import MCPProxyTool
-from ops_core.dependencies import get_metadata_store, get_mcp_client
+# Import session factory and session type for actor
+from ops_core.dependencies import async_session_factory, get_mcp_client
+from sqlalchemy.ext.asyncio import AsyncSession
+# Removed get_metadata_store as actor will create its own
 # Removed direct broker import: from ops_core.tasks.broker import broker
 
 logger = logging.getLogger(__name__)
@@ -98,7 +103,8 @@ class InMemoryScheduler:
     Uses Dramatiq to dispatch agent tasks for asynchronous execution.
     """
     # Accept mcp_client for test compatibility, even if not directly used here
-    def __init__(self, metadata_store: InMemoryMetadataStore, mcp_client: Optional[OpsMcpClient] = None):
+    # Update type hint to accept any BaseMetadataStore implementation
+    def __init__(self, metadata_store: BaseMetadataStore, mcp_client: Optional[OpsMcpClient] = None):
         self.metadata_store = metadata_store
         # self.mcp_client = mcp_client # Store if needed, but actor uses get_mcp_client()
         logger.info("InMemoryScheduler initialized.")
@@ -145,13 +151,24 @@ class InMemoryScheduler:
 
 # --- Agent Task Execution Logic ---
 
-async def _run_agent_task_logic(task_id: str, goal: str, input_data: Dict[str, Any]):
+async def _run_agent_task_logic(
+    task_id: str,
+    goal: str,
+    input_data: Dict[str, Any],
+    metadata_store: BaseMetadataStore, # Accept store instance
+    mcp_client: OpsMcpClient # Accept MCP client instance
+):
     """Helper function containing the core logic for running an agent task."""
     logger.info(f"Starting agent task logic for task_id: {task_id}, goal: {goal}")
-    metadata_store = get_metadata_store() # Get store instance via dependency function
-    mcp_client = get_mcp_client() # Get MCP client instance
+    # metadata_store and mcp_client are now passed as arguments
 
     try:
+        # Ensure the store is valid before proceeding (basic check)
+        if not metadata_store:
+             logger.error(f"Metadata store not provided for task {task_id}. Aborting.")
+             # Cannot update status without a store
+             return
+
         await metadata_store.update_task_status(task_id, TaskStatus.RUNNING)
 
         # --- Agent Setup ---
@@ -173,12 +190,13 @@ async def _run_agent_task_logic(task_id: str, goal: str, input_data: Dict[str, A
              await metadata_store.update_task_status(task_id, TaskStatus.FAILED)
              return # Stop execution if config fails
 
-        # Inject MCP Proxy Tool if MCP client is available and running
-        if mcp_client and mcp_client._is_running: # Check internal running flag
+        # Inject MCP Proxy Tool if MCP client is available
+        # Note: Checking _is_running might be less reliable if client startup is complex.
+        # Consider a more robust check or assume it's ready if provided.
+        if mcp_client:
              try:
-                 # MCPProxyTool defines spec as a class attribute, don't pass it to init
                  proxy_tool = MCPProxyTool(mcp_client=mcp_client)
-                 tool_registry_instance.add_tool(proxy_tool) # Correct method name is add_tool
+                 tool_registry_instance.add_tool(proxy_tool)
                  logger.info(f"MCP Proxy Tool injected for task {task_id}")
              except ImportError:
                  logger.warning("MCP Proxy Tool spec not found in agentkit. Skipping injection.")
@@ -231,51 +249,89 @@ async def _run_agent_task_logic(task_id: str, goal: str, input_data: Dict[str, A
         # Cannot update task if not found
     except Exception as e:
         logger.exception(f"Agent task {task_id} failed with unexpected error: {e}")
-        try:
-            # Attempt to mark the task as failed in the store
-            await metadata_store.update_task_output(
-                task_id=task_id,
-                result={"error": "Agent execution failed unexpectedly."},
-                error_message=str(e)
-            )
-            await metadata_store.update_task_status(task_id, TaskStatus.FAILED)
-        except TaskNotFoundError:
-             logger.error(f"Task {task_id} not found when trying to report agent failure.")
-        except Exception as store_e:
-            logger.exception(f"Failed to update metadata store for failed task {task_id}: {store_e}")
-
+        if metadata_store: # Check if store is available before trying to update
+            try:
+                # Attempt to mark the task as failed in the store
+                await metadata_store.update_task_output(
+                    task_id=task_id,
+                    result={"error": "Agent execution failed unexpectedly."},
+                    error_message=str(e)
+                )
+                await metadata_store.update_task_status(task_id, TaskStatus.FAILED)
+            except TaskNotFoundError:
+                 logger.error(f"Task {task_id} not found when trying to report agent failure.")
+            except Exception as store_e:
+                logger.exception(f"Failed to update metadata store for failed task {task_id}: {store_e}")
+        else:
+            logger.error("Metadata store unavailable to report agent failure.")
 # --- Dramatiq Actor Definition ---
 
-@dramatiq.actor() # Use global decorator, removed store_results option
+@dramatiq.actor()
 async def execute_agent_task_actor(task_id: str, goal: str, input_data: Dict[str, Any]):
     """
     Dramatiq actor that executes the agent task logic asynchronously.
-    """
-    # Load testing hook
-    mock_delay_ms_str = os.getenv("OPS_CORE_LOAD_TEST_MOCK_AGENT_DELAY_MS")
-    if mock_delay_ms_str:
-        try:
-            delay_ms = int(mock_delay_ms_str)
-            logger.warning(f"LOAD TEST MODE: Mocking agent execution with {delay_ms}ms delay for task {task_id}.")
-            await asyncio.sleep(delay_ms / 1000.0)
-            # Simulate success for load testing
-            metadata_store = get_metadata_store()
-            await metadata_store.update_task_output(task_id=task_id, result={"mock_result": "load_test_success"})
-            await metadata_store.update_task_status(task_id, TaskStatus.COMPLETED)
-            logger.info(f"LOAD TEST MODE: Mock agent task {task_id} completed.")
-            return # Skip real execution
-        except ValueError:
-            logger.error(f"Invalid OPS_CORE_LOAD_TEST_MOCK_AGENT_DELAY_MS value: {mock_delay_ms_str}. Proceeding with real execution.")
-        except Exception as mock_err:
-             logger.exception(f"Error during mock agent execution for task {task_id}: {mock_err}")
-             # Attempt to mark as failed even in mock mode
-             try:
-                 metadata_store = get_metadata_store()
-                 await metadata_store.update_task_output(task_id=task_id, error_message=f"Mock execution error: {mock_err}")
-                 await metadata_store.update_task_status(task_id, TaskStatus.FAILED)
-             except Exception:
-                 logger.exception(f"Failed to update store after mock execution error for task {task_id}")
-             return # Stop execution
 
-    # Call the actual logic
-    await _run_agent_task_logic(task_id=task_id, goal=goal, input_data=input_data)
+    Manages its own database session and metadata store instance.
+    """
+    logger.info(f"Dramatiq actor received task: {task_id}")
+    session: Optional[AsyncSession] = None
+    metadata_store: Optional[SqlMetadataStore] = None # Use specific type for instantiation
+
+    try:
+        # Create a new session for this actor execution
+        session = async_session_factory()
+        metadata_store = SqlMetadataStore(session)
+        mcp_client = get_mcp_client() # Get singleton MCP client
+
+        # --- Load testing hook ---
+        mock_delay_ms_str = os.getenv("OPS_CORE_LOAD_TEST_MOCK_AGENT_DELAY_MS")
+        if mock_delay_ms_str:
+            try:
+                delay_ms = int(mock_delay_ms_str)
+                logger.warning(f"LOAD TEST MODE: Mocking agent execution with {delay_ms}ms delay for task {task_id}.")
+                await asyncio.sleep(delay_ms / 1000.0)
+                # Simulate success for load testing using the actor's store instance
+                await metadata_store.update_task_output(task_id=task_id, result={"mock_result": "load_test_success"})
+                await metadata_store.update_task_status(task_id, TaskStatus.COMPLETED)
+                logger.info(f"LOAD TEST MODE: Mock agent task {task_id} completed.")
+                return # Skip real execution
+            except ValueError:
+                logger.error(f"Invalid OPS_CORE_LOAD_TEST_MOCK_AGENT_DELAY_MS value: {mock_delay_ms_str}. Proceeding with real execution.")
+            except Exception as mock_err:
+                 logger.exception(f"Error during mock agent execution for task {task_id}: {mock_err}")
+                 # Attempt to mark as failed even in mock mode
+                 try:
+                     await metadata_store.update_task_output(task_id=task_id, error_message=f"Mock execution error: {mock_err}")
+                     await metadata_store.update_task_status(task_id, TaskStatus.FAILED)
+                 except Exception as store_err_mock:
+                     logger.exception(f"Failed to update store after mock execution error for task {task_id}: {store_err_mock}")
+                 return # Stop execution
+
+        # --- Call the actual logic ---
+        await _run_agent_task_logic(
+            task_id=task_id,
+            goal=goal,
+            input_data=input_data,
+            metadata_store=metadata_store,
+            mcp_client=mcp_client
+        )
+
+    except Exception as actor_err:
+        # Catch broad exceptions at the actor level to log failure
+        logger.exception(f"Dramatiq actor failed unexpectedly for task {task_id}: {actor_err}")
+        # Attempt to mark task as failed if store was initialized
+        if metadata_store:
+            try:
+                await metadata_store.update_task_output(
+                    task_id=task_id,
+                    result={"error": "Actor execution failed unexpectedly."},
+                    error_message=str(actor_err)
+                )
+                await metadata_store.update_task_status(task_id, TaskStatus.FAILED)
+            except Exception as final_store_err:
+                logger.exception(f"Failed to update store after actor-level failure for task {task_id}: {final_store_err}")
+    finally:
+        # Ensure the session is closed
+        if session:
+            await session.close()
+            logger.debug(f"Database session closed for actor task {task_id}")

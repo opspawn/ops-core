@@ -2,64 +2,15 @@
 API Endpoints for managing Tasks.
 """
 
-from typing import List, Optional
+from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from ops_core.scheduler.engine import InMemoryScheduler
-from ops_core.metadata.store import InMemoryMetadataStore # Removed BaseMetadataStore import
-from ops_core.mcp_client.client import OpsMcpClient
+# Import dependencies directly from the central location
+from ops_core.dependencies import get_metadata_store, get_scheduler
+from ops_core.scheduler.engine import InMemoryScheduler # Still need scheduler type hint
+from ops_core.metadata.base import BaseMetadataStore # Import base class for type hint
 from ops_core.models.tasks import Task
 from ..schemas.tasks import TaskCreateRequest, TaskResponse, TaskListResponse
-
-# --- Global instances (simple approach for now, created lazily) ---
-# These will be created on first request if not overridden by tests
-_metadata_store: Optional[InMemoryMetadataStore] = None
-_mcp_client: Optional[OpsMcpClient] = None
-_scheduler: Optional[InMemoryScheduler] = None
-
-# --- Dependencies ---
-
-# Dependency function to get the metadata store instance
-def get_metadata_store() -> InMemoryMetadataStore: # Changed type hint
-    """
-    Provides the metadata store instance. Creates it if it doesn't exist.
-    """
-    global _metadata_store
-    if _metadata_store is None:
-        # In a real app, this might load from config or be part of a larger context
-        print("Creating singleton InMemoryMetadataStore instance") # Debug print
-        _metadata_store = InMemoryMetadataStore()
-    return _metadata_store
-
-# Dependency function to get the MCP client instance
-def get_mcp_client() -> OpsMcpClient:
-    """
-    Provides the MCP client instance. Creates it if it doesn't exist.
-    """
-    global _mcp_client
-    if _mcp_client is None:
-        # This will load config automatically based on OpsMcpClient implementation
-        print("Creating singleton OpsMcpClient instance") # Debug print
-        _mcp_client = OpsMcpClient()
-        # TODO: Consider starting servers if needed, or handle this in app lifespan
-    return _mcp_client
-
-# Dependency function to get the scheduler instance
-def get_scheduler(
-    metadata_store: InMemoryMetadataStore = Depends(get_metadata_store), # Corrected type hint
-    mcp_client: OpsMcpClient = Depends(get_mcp_client)
-) -> InMemoryScheduler:
-    """
-    Provides the scheduler instance. Creates it if it doesn't exist.
-    Requires metadata_store and mcp_client dependencies.
-    """
-    global _scheduler
-    if _scheduler is None:
-        print(f"Creating singleton InMemoryScheduler instance with store: {metadata_store} and client: {mcp_client}") # Debug print
-        _scheduler = InMemoryScheduler(metadata_store=metadata_store, mcp_client=mcp_client)
-        # TODO: Consider starting scheduler loop if needed, or handle in app lifespan
-    return _scheduler
-
 
 # --- Router ---
 router = APIRouter(
@@ -125,7 +76,7 @@ async def create_task(
 )
 async def get_task(
     task_id: str,
-    metadata_store: InMemoryMetadataStore = Depends(get_metadata_store),
+    metadata_store: BaseMetadataStore = Depends(get_metadata_store), # Use imported dependency and Base type
 ) -> Task:
     """
     Endpoint to retrieve a specific task by its unique ID.
@@ -165,7 +116,7 @@ async def get_task(
     },
 )
 async def list_tasks(
-    metadata_store: InMemoryMetadataStore = Depends(get_metadata_store),
+    metadata_store: BaseMetadataStore = Depends(get_metadata_store), # Use imported dependency and Base type
     # TODO: Add pagination parameters (skip: int = 0, limit: int = 100)
 ) -> TaskListResponse:
     """

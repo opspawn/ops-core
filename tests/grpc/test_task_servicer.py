@@ -9,35 +9,42 @@ from grpc import StatusCode
 from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime, timezone
 from google.protobuf import struct_pb2
+from sqlalchemy.ext.asyncio import AsyncSession
 
 # Import the servicer and generated types from the renamed directory
 from ops_core.grpc_internal.task_servicer import TaskServicer
-from ops_core.grpc_internal import tasks_pb2, tasks_pb2_grpc # Corrected typo: grpcc -> grpc
+from ops_core.grpc_internal import tasks_pb2, tasks_pb2_grpc
 
-# Import core components and models for mocking
-from ops_core.scheduler.engine import InMemoryScheduler
-from ops_core.metadata.store import InMemoryMetadataStore
+# Import core components and models
+from ops_core.scheduler.engine import InMemoryScheduler # Keep for mocking
+from ops_core.metadata.sql_store import SqlMetadataStore # Import real store
 from ops_core.models import Task as CoreTask, TaskStatus as CoreTaskStatus
 
 # --- Fixtures ---
 
-@pytest.fixture
-def mock_metadata_store() -> AsyncMock:
-    """Provides a mock InMemoryMetadataStore."""
-    return AsyncMock(spec=InMemoryMetadataStore)
+# Remove mock_metadata_store fixture
+# @pytest.fixture
+# def mock_metadata_store() -> AsyncMock:
+#     """Provides a mock InMemoryMetadataStore."""
+#     return AsyncMock(spec=InMemoryMetadataStore)
 
 @pytest.fixture
-def mock_scheduler(mock_metadata_store: AsyncMock) -> AsyncMock:
-    """Provides a mock InMemoryScheduler with a mocked metadata_store."""
+def mock_scheduler() -> AsyncMock:
+    """Provides a mock InMemoryScheduler."""
+    # No longer needs to hold a mock store
     scheduler = AsyncMock(spec=InMemoryScheduler)
-    # Configure the mock to have the public attribute the servicer expects
-    scheduler.metadata_store = mock_metadata_store # Set public attribute
     return scheduler
 
 @pytest.fixture
-def task_servicer(mock_scheduler: AsyncMock) -> TaskServicer:
-    """Provides an instance of TaskServicer with mocked dependencies."""
-    return TaskServicer(scheduler=mock_scheduler)
+def task_servicer(
+    mock_scheduler: AsyncMock,
+    db_session: AsyncSession # Inject db session
+) -> TaskServicer:
+    """Provides an instance of TaskServicer with a mocked scheduler and real SqlMetadataStore."""
+    # Create real store instance
+    sql_store = SqlMetadataStore(db_session)
+    # Inject mock scheduler and real store
+    return TaskServicer(scheduler=mock_scheduler, metadata_store=sql_store)
 
 @pytest.fixture
 def mock_grpc_context() -> AsyncMock:
@@ -121,15 +128,19 @@ async def test_create_task_scheduler_error(task_servicer: TaskServicer, mock_sch
     )
 
 @pytest.mark.asyncio
-async def test_get_task_success(task_servicer: TaskServicer, mock_scheduler: AsyncMock, mock_grpc_context: AsyncMock):
+async def test_get_task_success(
+    task_servicer: TaskServicer, # Uses updated fixture with real store
+    mock_grpc_context: AsyncMock,
+    db_session: AsyncSession # Inject session for setup
+):
     """
-    Test successful task retrieval via gRPC GetTask.
+    Test successful task retrieval via gRPC GetTask using real DB.
     """
-    # Arrange
-    task_id = "grpc_task_2"
-    request = tasks_pb2.GetTaskRequest(task_id=task_id)
-    mock_core_task = CoreTask(
+    # Arrange: Create task in DB
+    task_id = "grpc_task_db_2"
+    db_task = CoreTask(
         task_id=task_id,
+        name="DB Get Task gRPC",
         task_type="data_fetch",
         status=CoreTaskStatus.RUNNING,
         input_data={"url": "http://example.com"},
@@ -137,63 +148,72 @@ async def test_get_task_success(task_servicer: TaskServicer, mock_scheduler: Asy
         updated_at=datetime.now(timezone.utc),
         started_at=datetime.now(timezone.utc),
     )
-    # Access the mocked store via the public attribute set in the fixture
-    mock_scheduler.metadata_store.get_task.return_value = mock_core_task
+    db_session.add(db_task)
+    await db_session.commit()
+    await db_session.refresh(db_task)
+
+    request = tasks_pb2.GetTaskRequest(task_id=task_id)
 
     # Act
     response = await task_servicer.GetTask(request, mock_grpc_context)
 
     # Assert
-    # Verify the call on the mocked store directly
-    mock_scheduler.metadata_store.get_task.assert_awaited_once_with(task_id) # Use public attribute
     assert isinstance(response, tasks_pb2.GetTaskResponse)
     assert response.task.task_id == task_id
-    assert response.task.task_type == mock_core_task.task_type
+    assert response.task.task_type == db_task.task_type
     assert response.task.status == tasks_pb2.RUNNING
     assert response.task.started_at is not None
     mock_grpc_context.abort.assert_not_called()
+    # No mock store call to verify
 
 @pytest.mark.asyncio
-async def test_get_task_not_found(task_servicer: TaskServicer, mock_scheduler: AsyncMock, mock_grpc_context: AsyncMock):
+async def test_get_task_not_found(
+    task_servicer: TaskServicer, # Uses updated fixture
+    mock_grpc_context: AsyncMock,
+    db_session: AsyncSession # Inject session to ensure clean state
+):
     """
-    Test task retrieval failure when task is not found.
+    Test task retrieval failure when task is not found using real DB.
     """
     # Arrange
-    task_id = "not_found_task"
+    task_id = "not_found_task_grpc_db"
     request = tasks_pb2.GetTaskRequest(task_id=task_id)
-    # Access the mocked store via the public attribute set in the fixture
-    mock_scheduler.metadata_store.get_task.return_value = None
+    # Ensure task does not exist (handled by db_session fixture)
 
     # Act
     await task_servicer.GetTask(request, mock_grpc_context)
 
     # Assert
-    # Verify the call on the mocked store directly
-    mock_scheduler.metadata_store.get_task.assert_awaited_once_with(task_id) # Use public attribute
-    # Use imported StatusCode
     mock_grpc_context.abort.assert_awaited_once_with(
         StatusCode.NOT_FOUND, f"Task with ID '{task_id}' not found."
     )
+    # No mock store call to verify
 
 @pytest.mark.asyncio
-async def test_get_task_metadata_store_error(task_servicer: TaskServicer, mock_scheduler: AsyncMock, mock_grpc_context: AsyncMock):
+async def test_get_task_metadata_store_error(
+    task_servicer: TaskServicer, # Uses updated fixture
+    mock_grpc_context: AsyncMock,
+    db_session: AsyncSession, # Inject session for setup and patching
+    mocker # Inject mocker for patching
+):
     """
-    Test task retrieval failure when the metadata store raises an error.
+    Test task retrieval failure when the metadata store raises an error (simulated DB error).
     """
-    # Arrange
-    task_id = "error_task_grpc"
+    # Arrange: Create task in DB so servicer tries to fetch it
+    task_id = "error_task_grpc_db"
+    db_task = CoreTask(task_id=task_id, name="Error Task gRPC", task_type="error_test", status=CoreTaskStatus.PENDING)
+    db_session.add(db_task)
+    await db_session.commit()
+
     request = tasks_pb2.GetTaskRequest(task_id=task_id)
-    error_message = "DB connection lost"
-    # Access the mocked store via the public attribute set in the fixture
-    mock_scheduler.metadata_store.get_task.side_effect = Exception(error_message)
+    error_message = "Simulated DB connection lost"
+    # Patch the session's execute method to raise error
+    mocker.patch.object(db_session, "execute", side_effect=Exception(error_message))
 
     # Act
     await task_servicer.GetTask(request, mock_grpc_context)
 
     # Assert
-    # Verify the call on the mocked store directly
-    mock_scheduler.metadata_store.get_task.assert_awaited_once_with(task_id) # Use public attribute
-    # Use imported StatusCode
     mock_grpc_context.abort.assert_awaited_once_with(
         StatusCode.INTERNAL, f"Failed to retrieve task: {error_message}"
     )
@@ -246,54 +266,61 @@ async def test_create_task_empty_task_type(task_servicer: TaskServicer, mock_sch
 
 
 @pytest.mark.asyncio
-async def test_list_tasks_success(task_servicer: TaskServicer, mock_scheduler: AsyncMock, mock_grpc_context: AsyncMock):
+async def test_list_tasks_success(
+    task_servicer: TaskServicer, # Uses updated fixture
+    mock_grpc_context: AsyncMock,
+    db_session: AsyncSession # Inject session for setup
+):
     """
-    Test successful task listing via gRPC ListTasks.
+    Test successful task listing via gRPC ListTasks using real DB.
     """
-    # Arrange
+    # Arrange: Create tasks in DB
     request = tasks_pb2.ListTasksRequest()
     now = datetime.now(timezone.utc)
-    mock_core_tasks = [
-        CoreTask(task_id="task_a", task_type="type1", status=CoreTaskStatus.COMPLETED, input_data={}, created_at=now, updated_at=now),
-        CoreTask(task_id="task_b", task_type="type2", status=CoreTaskStatus.PENDING, input_data={}, created_at=now, updated_at=now),
-    ]
-    # Access the mocked store via the public attribute set in the fixture
-    mock_scheduler.metadata_store.list_tasks.return_value = mock_core_tasks
+    task_a = CoreTask(task_id="task_grpc_a", name="gRPC A", task_type="type1", status=CoreTaskStatus.COMPLETED, input_data={}, created_at=now, updated_at=now)
+    task_b = CoreTask(task_id="task_grpc_b", name="gRPC B", task_type="type2", status=CoreTaskStatus.PENDING, input_data={}, created_at=now, updated_at=now)
+    db_session.add_all([task_a, task_b])
+    await db_session.commit()
 
     # Act
     response = await task_servicer.ListTasks(request, mock_grpc_context)
 
     # Assert
-    # Verify the call on the mocked store directly
-    mock_scheduler.metadata_store.list_tasks.assert_awaited_once() # Use public attribute
     assert isinstance(response, tasks_pb2.ListTasksResponse)
     assert len(response.tasks) == 2
     assert response.total == 2
-    assert response.tasks[0].task_id == "task_a"
-    assert response.tasks[1].task_id == "task_b"
-    assert response.tasks[0].status == tasks_pb2.COMPLETED
-    assert response.tasks[1].status == tasks_pb2.PENDING
+    # Check presence and basic details (order might not be guaranteed)
+    task_ids_in_response = {t.task_id for t in response.tasks}
+    assert "task_grpc_a" in task_ids_in_response
+    assert "task_grpc_b" in task_ids_in_response
+    # Find task_a data to check status
+    task_a_data = next((t for t in response.tasks if t.task_id == "task_grpc_a"), None)
+    assert task_a_data is not None
+    assert task_a_data.status == tasks_pb2.COMPLETED
     mock_grpc_context.abort.assert_not_called()
+    # No mock store call to verify
 
 
 @pytest.mark.asyncio
-async def test_list_tasks_metadata_store_error(task_servicer: TaskServicer, mock_scheduler: AsyncMock, mock_grpc_context: AsyncMock):
+async def test_list_tasks_metadata_store_error(
+    task_servicer: TaskServicer, # Uses updated fixture
+    mock_grpc_context: AsyncMock,
+    db_session: AsyncSession, # Inject session for patching
+    mocker # Inject mocker
+):
     """
-    Test task listing failure when the metadata store raises an error.
+    Test task listing failure when the metadata store raises an error (simulated DB error).
     """
     # Arrange
     request = tasks_pb2.ListTasksRequest()
-    error_message = "Query failed"
-    # Access the mocked store via the public attribute set in the fixture
-    mock_scheduler.metadata_store.list_tasks.side_effect = Exception(error_message)
+    error_message = "Simulated query failed"
+    # Patch the session's execute method to raise error
+    mocker.patch.object(db_session, "execute", side_effect=Exception(error_message))
 
     # Act
     await task_servicer.ListTasks(request, mock_grpc_context)
 
     # Assert
-    # Verify the call on the mocked store directly
-    mock_scheduler.metadata_store.list_tasks.assert_awaited_once() # Use public attribute
-    # Use imported StatusCode
     mock_grpc_context.abort.assert_awaited_once_with(
         StatusCode.INTERNAL, f"Failed to list tasks: {error_message}"
     )

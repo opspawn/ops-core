@@ -14,8 +14,8 @@ from . import tasks_pb2
 from . import tasks_pb2_grpc
 
 # Import core components
-from ops_core.scheduler.engine import InMemoryScheduler
-from ops_core.metadata.store import InMemoryMetadataStore
+from ops_core.scheduler.engine import InMemoryScheduler # Keep for CreateTask
+from ops_core.metadata.base import BaseMetadataStore # Import Base class
 from ops_core.models import Task as CoreTask, TaskStatus as CoreTaskStatus
 
 logger = logging.getLogger(__name__)
@@ -68,15 +68,17 @@ class TaskServicer(tasks_pb2_grpc.TaskServiceServicer):
     Implements the TaskService gRPC interface.
     """
 
-    def __init__(self, scheduler: InMemoryScheduler):
+    # Inject both scheduler (for submit_task) and store (for get/list)
+    def __init__(self, scheduler: InMemoryScheduler, metadata_store: BaseMetadataStore):
         """
         Initializes the servicer with dependencies.
 
         Args:
             scheduler: The scheduler instance.
+            metadata_store: The metadata store instance.
         """
         self._scheduler = scheduler
-        self._metadata_store = scheduler.metadata_store # Use public attribute
+        self._metadata_store = metadata_store # Use injected store directly
         logger.info("TaskServicer initialized.")
 
     async def CreateTask(

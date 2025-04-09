@@ -9,26 +9,26 @@ from unittest.mock import patch, AsyncMock, MagicMock
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 # Explicitly import required gRPC submodules
 from grpc import aio as grpc_aio
 
 # Import project components
 from ops_core.main import app as fastapi_app # Import the FastAPI app instance
 from ops_core.scheduler.engine import InMemoryScheduler
-from ops_core.metadata.store import InMemoryMetadataStore
+from ops_core.metadata.sql_store import SqlMetadataStore # Import real store
 from ops_core.mcp_client.client import OpsMcpClient
-from ops_core.models.tasks import TaskStatus
-from ops_core.api.v1.endpoints import tasks as tasks_api # Import the module itself
+from ops_core.models.tasks import Task, TaskStatus # Import Task model
+# Import dependency getters
+from ops_core.dependencies import get_scheduler, get_metadata_store, get_db_session, get_mcp_client
 from ops_core.grpc_internal.task_servicer import TaskServicer
 from ops_core.grpc_internal import tasks_pb2, tasks_pb2_grpc
 from ops_core.config.loader import McpConfig # Import for mocking
 
 # --- Fixtures ---
 
-@pytest_asyncio.fixture
-async def mock_metadata_store() -> InMemoryMetadataStore:
-    """Provides a clean InMemoryMetadataStore for each test."""
-    return InMemoryMetadataStore()
+# Remove mock_metadata_store fixture
 
 @pytest_asyncio.fixture
 async def mock_mcp_client() -> MagicMock:
@@ -40,33 +40,36 @@ async def mock_mcp_client() -> MagicMock:
     return client
 
 @pytest_asyncio.fixture
-async def mock_scheduler(
-    mock_metadata_store: InMemoryMetadataStore,
+async def mock_scheduler( # Renaming to real_scheduler_mock_client might be clearer, but keep name for now
+    db_session: AsyncSession, # Inject db_session
     mock_mcp_client: MagicMock
 ) -> InMemoryScheduler:
-    """Provides an InMemoryScheduler with mocked dependencies."""
+    """Provides an InMemoryScheduler with a real SqlMetadataStore and mocked MCP client."""
+    # Create real store instance
+    sql_store = SqlMetadataStore(db_session)
     scheduler = InMemoryScheduler(
-        metadata_store=mock_metadata_store,
-        mcp_client=mock_mcp_client # Fixed indentation
-    ) # Fixed closing parenthesis indentation
-    # No longer mocking _execute_agent_task or _process_tasks here, # Removed leading space
+        metadata_store=sql_store, # Use real store
+        mcp_client=mock_mcp_client
+    )
+    # No longer mocking _execute_agent_task or _process_tasks here,
     # as execution is now handled by Dramatiq actors.
     # We will patch the actor's send method in specific tests.
-    # Ensure the store is accessible for gRPC tests
-    scheduler.metadata_store = mock_metadata_store # Fixed indentation
-    return scheduler # Fixed indentation
+    # The store is already set correctly in __init__
+    return scheduler
 
 @pytest.fixture
 def test_client(
-    mock_scheduler: InMemoryScheduler,
-    mock_metadata_store: InMemoryMetadataStore,
+    db_session: AsyncSession, # Inject db_session
+    mock_scheduler: InMemoryScheduler, # Keep using the updated mock_scheduler fixture
     mock_mcp_client: MagicMock
 ) -> TestClient:
-    """Provides a FastAPI TestClient with overridden dependencies."""
-    # Override dependencies in the FastAPI app
-    fastapi_app.dependency_overrides[tasks_api.get_scheduler] = lambda: mock_scheduler
-    fastapi_app.dependency_overrides[tasks_api.get_metadata_store] = lambda: mock_metadata_store
-    fastapi_app.dependency_overrides[tasks_api.get_mcp_client] = lambda: mock_mcp_client
+    """Provides a FastAPI TestClient with overridden dependencies (real store via db_session)."""
+    # Override get_db_session to provide the test session
+    fastapi_app.dependency_overrides[get_db_session] = lambda: db_session
+    # Override scheduler and mcp client
+    fastapi_app.dependency_overrides[get_scheduler] = lambda: mock_scheduler
+    fastapi_app.dependency_overrides[get_mcp_client] = lambda: mock_mcp_client
+    # Do NOT override get_metadata_store directly, let it use the overridden get_db_session
 
     client = TestClient(fastapi_app)
     yield client # Use yield to ensure proper teardown if needed
@@ -76,11 +79,18 @@ def test_client(
 
 
 @pytest_asyncio.fixture(scope="function")
-async def grpc_server(mock_scheduler: InMemoryScheduler):
-    """Starts an in-process gRPC server for testing."""
+async def grpc_server(
+    mock_scheduler: InMemoryScheduler, # Keep mock scheduler
+    db_session: AsyncSession # Inject db_session
+):
+    """Starts an in-process gRPC server for testing with real store."""
+    # Create real store instance
+    sql_store = SqlMetadataStore(db_session)
     server = grpc_aio.server()
     tasks_pb2_grpc.add_TaskServiceServicer_to_server(
-        TaskServicer(scheduler=mock_scheduler), server
+        # Inject mock scheduler and real store into servicer
+        TaskServicer(scheduler=mock_scheduler, metadata_store=sql_store),
+        server
     )
     port = server.add_insecure_port("[::]:0") # Use random available port
     await server.start()
@@ -102,11 +112,12 @@ async def grpc_client(grpc_server: str):
 @patch('ops_core.scheduler.engine.execute_agent_task_actor') # Patch actor for submit tests
 async def test_rest_api_submit_non_agent_task(
     mock_actor: MagicMock, # Add mock actor arg
-    test_client: TestClient,
-    mock_scheduler: InMemoryScheduler,
-    mock_metadata_store: InMemoryMetadataStore
+    test_client: TestClient, # Uses updated fixture with real store via db_session override
+    mock_scheduler: InMemoryScheduler, # Keep mock scheduler
+    db_session: AsyncSession # Inject session for verification
+    # Removed mock_metadata_store argument
 ):
-    """Verify REST API task submission calls scheduler and updates store."""
+    """Verify REST API task submission calls scheduler and updates store (DB)."""
     task_data = {"task_type": "simple_test", "input_data": {"value": 123}}
 
     # Mock the scheduler's submit_task to check it's called correctly
@@ -128,8 +139,9 @@ async def test_rest_api_submit_non_agent_task(
     assert call_args['task_type'] == "simple_test"
     assert call_args['input_data'] == {"value": 123}
 
-    # Check task exists in store
-    stored_task = await mock_metadata_store.get_task(task_id)
+    # Check task exists in DB via the real store used by the scheduler
+    # Note: We access the store via the scheduler fixture instance
+    stored_task = await mock_scheduler.metadata_store.get_task(task_id)
     assert stored_task is not None
     assert stored_task.task_id == task_id
     assert stored_task.status == TaskStatus.PENDING
@@ -143,12 +155,13 @@ async def test_rest_api_submit_non_agent_task(
 @patch('ops_core.scheduler.engine.execute_agent_task_actor') # Patch actor for submit tests
 async def test_rest_api_submit_agent_task(
     mock_actor: MagicMock, # Add mock actor arg
-    test_client: TestClient,
-    mock_scheduler: InMemoryScheduler,
-    mock_metadata_store: InMemoryMetadataStore,
+    test_client: TestClient, # Uses updated fixture
+    mock_scheduler: InMemoryScheduler, # Keep mock scheduler
+    db_session: AsyncSession, # Inject session for verification
+    # Removed mock_metadata_store argument
     mocker # Add mocker fixture
 ):
-    """Verify REST API agent task submission calls scheduler which calls actor send."""
+    """Verify REST API agent task submission calls scheduler which calls actor send (DB)."""
     # Patch MCP config loading locally for this test
     mocker.patch(
         "ops_core.config.loader.get_resolved_mcp_config",
@@ -170,8 +183,8 @@ async def test_rest_api_submit_agent_task(
     assert response_json["status"] == TaskStatus.PENDING.value
     task_id = response_json["task_id"]
 
-    # Check task exists in store
-    stored_task = await mock_metadata_store.get_task(task_id)
+    # Check task exists in DB via the real store used by the scheduler
+    stored_task = await mock_scheduler.metadata_store.get_task(task_id)
     assert stored_task is not None
 
     # Ensure Dramatiq actor send WAS called by the scheduler's submit_task
@@ -186,11 +199,12 @@ async def test_rest_api_submit_agent_task(
 @patch('ops_core.scheduler.engine.execute_agent_task_actor') # Patch actor for submit tests
 async def test_grpc_api_submit_non_agent_task(
     mock_actor: MagicMock, # Add mock actor arg
-    grpc_client: tasks_pb2_grpc.TaskServiceStub,
-    mock_scheduler: InMemoryScheduler,
-    mock_metadata_store: InMemoryMetadataStore
+    grpc_client: tasks_pb2_grpc.TaskServiceStub, # Uses updated fixture
+    mock_scheduler: InMemoryScheduler, # Keep mock scheduler
+    db_session: AsyncSession # Inject session for verification
+    # Removed mock_metadata_store argument
 ):
-    """Verify gRPC API task submission calls scheduler and updates store."""
+    """Verify gRPC API task submission calls scheduler and updates store (DB)."""
     input_struct = tasks_pb2.google_dot_protobuf_dot_struct__pb2.Struct()
     input_struct.update({"value": 456})
     request = tasks_pb2.CreateTaskRequest(
@@ -214,8 +228,8 @@ async def test_grpc_api_submit_non_agent_task(
     assert call_args['task_type'] == "grpc_test"
     assert call_args['input_data'] == {"value": 456}
 
-    # Check task exists in store
-    stored_task = await mock_metadata_store.get_task(task_id)
+    # Check task exists in DB via the real store used by the scheduler
+    stored_task = await mock_scheduler.metadata_store.get_task(task_id)
     assert stored_task is not None
     assert stored_task.task_id == task_id
     assert stored_task.status == TaskStatus.PENDING
@@ -229,12 +243,13 @@ async def test_grpc_api_submit_non_agent_task(
 @patch('ops_core.scheduler.engine.execute_agent_task_actor') # Patch actor for submit tests
 async def test_grpc_api_submit_agent_task(
     mock_actor: MagicMock, # Add mock actor arg
-    grpc_client: tasks_pb2_grpc.TaskServiceStub,
-    mock_scheduler: InMemoryScheduler,
-    mock_metadata_store: InMemoryMetadataStore,
+    grpc_client: tasks_pb2_grpc.TaskServiceStub, # Uses updated fixture
+    mock_scheduler: InMemoryScheduler, # Keep mock scheduler
+    db_session: AsyncSession, # Inject session for verification
+    # Removed mock_metadata_store argument
     mocker # Add mocker fixture
 ):
-    """Verify gRPC API agent task submission calls scheduler which calls actor send."""
+    """Verify gRPC API agent task submission calls scheduler which calls actor send (DB)."""
     # Patch MCP config loading locally for this test
     mocker.patch(
         "ops_core.config.loader.get_resolved_mcp_config",
@@ -255,8 +270,8 @@ async def test_grpc_api_submit_agent_task(
     assert response.task.status == tasks_pb2.PENDING
     task_id = response.task.task_id
 
-    # Check task exists in store
-    stored_task = await mock_metadata_store.get_task(task_id)
+    # Check task exists in DB via the real store used by the scheduler
+    stored_task = await mock_scheduler.metadata_store.get_task(task_id)
     assert stored_task is not None
 
     # Ensure Dramatiq actor send WAS called by the scheduler's submit_task

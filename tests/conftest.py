@@ -21,6 +21,7 @@ from ops_core.config.loader import get_resolved_mcp_config # Import config loade
 from ops_core.config.loader import McpConfig # Import the type
 from ops_core.metadata.store import InMemoryMetadataStore # Keep for other tests
 from ops_core.mcp_client.client import OpsMcpClient
+# Removed sys.path hack
 from ops_core.scheduler.engine import execute_agent_task_actor # Import actor to get queue name
 
 # Load environment variables from .env file in the project root
