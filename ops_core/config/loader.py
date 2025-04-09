@@ -34,6 +34,7 @@ class McpConfig(BaseModel):
     """Pydantic model for validating the overall MCP configuration structure."""
     mcp_server_base_path: Optional[str] = None
     mcp_call_tool_timeout_seconds: float = Field(default=30.0, description="Default timeout in seconds for MCP call_tool requests.")
+    database_url: str = Field(default="postgresql+asyncpg://user:password@localhost/opspawn_db", description="Database connection URL.")
     # Allow servers to be None initially, validator will default to {}
     servers: Optional[Dict[str, McpServerConfig]] = Field(default_factory=dict)
 
@@ -146,6 +147,13 @@ def get_resolved_mcp_config(config_path: Optional[str] = None) -> McpConfig:
     """
     loaded_config = load_mcp_config(config_path)
     resolved_config = resolve_environment_variables(loaded_config)
+
+    # Resolve DATABASE_URL from environment variable, keeping default if not set
+    db_url_from_env = os.environ.get("DATABASE_URL")
+    if db_url_from_env:
+        resolved_config.database_url = db_url_from_env
+    # Otherwise, the default value set in the model field definition is used
+
     return resolved_config
 
 # Example usage (for testing purposes)
@@ -184,8 +192,16 @@ servers:
 
         # Test loading the default config
         resolved_config = get_resolved_mcp_config() # Uses default path mechanism
-        print("\nResolved MCP Configuration:")
+        print("\nResolved Configuration:")
         print(resolved_config.model_dump_json(indent=2))
+
+        # Test with DATABASE_URL override
+        print("\nTesting with DATABASE_URL override...")
+        os.environ['DATABASE_URL'] = 'postgresql+asyncpg://test_user:test_pass@testhost/testdb'
+        resolved_config_override = get_resolved_mcp_config()
+        print(resolved_config_override.model_dump_json(indent=2))
+        del os.environ['DATABASE_URL']
+
 
         # Clean up dummy file and env var
         os.remove(dummy_config_path)

@@ -1,190 +1,121 @@
 """
-In-memory implementation of the metadata store for Ops Core.
-
-This provides a basic, non-persistent storage mechanism suitable for
-development and testing purposes. It stores Task objects in a dictionary.
+Defines the abstract base class for metadata stores and custom exceptions.
 """
 
-import logging
-from typing import Dict, List, Optional, Any # Added Any
-from datetime import datetime, timezone # Added timezone
+from abc import ABC, abstractmethod
+from typing import List, Optional, Any
 
-from ops_core.models import Task, TaskStatus # Import base models
-from ops_core.models.tasks import current_utc_time # Import helper from specific module
-
-logger = logging.getLogger(__name__)
-
+from ops_core.models.tasks import Task, TaskStatus
 
 class TaskNotFoundError(Exception):
-    """Exception raised when a task is not found in the store."""
+    """Custom exception raised when a task is not found in the store."""
+    pass
 
-    def __init__(self, task_id: str):
-        self.task_id = task_id
-        super().__init__(f"Task with ID '{task_id}' not found.")
+class BaseMetadataStore(ABC):
+    """Abstract base class for metadata storage."""
 
+    @abstractmethod
+    async def add_task(self, task: Task) -> Task:
+        """Adds a new task to the store."""
+        pass
 
-class InMemoryMetadataStore:
-    """
-    Manages Task metadata using an in-memory dictionary.
+    @abstractmethod
+    async def get_task(self, task_id: str) -> Task:
+        """Retrieves a task by its ID. Raises TaskNotFoundError if not found."""
+        pass
 
-    This class provides basic CRUD operations for Task objects. It is not
-    thread-safe and data is lost when the application stops.
-    """
+    @abstractmethod
+    async def update_task_status(self, task_id: str, status: TaskStatus, error_message: Optional[str] = None) -> Task:
+        """Updates the status of an existing task. Raises TaskNotFoundError if not found."""
+        pass
+
+    @abstractmethod
+    async def update_task_output(self, task_id: str, result: Any) -> Task:
+        """Updates the output data of a completed task. Raises TaskNotFoundError if not found."""
+        pass
+
+    @abstractmethod
+    async def list_tasks(self, limit: int = 100, offset: int = 0, status: Optional[TaskStatus] = None) -> List[Task]:
+        """Lists tasks, optionally filtering by status."""
+        pass
+
+# --- InMemoryMetadataStore Implementation (Restored) ---
+# Kept for compatibility with existing tests that might use the mock fixture.
+
+from copy import deepcopy
+from typing import Dict
+
+class InMemoryMetadataStore(BaseMetadataStore):
+    """In-memory implementation of the metadata store (for testing/mocking)."""
 
     def __init__(self):
-        """Initializes the in-memory store with an empty dictionary."""
         self._tasks: Dict[str, Task] = {}
-        logger.info("InMemoryMetadataStore initialized.")
 
-    async def add_task(self, task: Task) -> None:
-        """
-        Adds a new task to the store.
-
-        Args:
-            task: The Task object to add.
-
-        Raises:
-            ValueError: If a task with the same ID already exists.
-        """
+    async def add_task(self, task: Task) -> Task:
+        """Adds a new task to the in-memory store."""
         if task.task_id in self._tasks:
-            logger.warning(f"Attempted to add duplicate task ID: {task.task_id}")
             raise ValueError(f"Task with ID '{task.task_id}' already exists.")
-        self._tasks[task.task_id] = task.model_copy(deep=True)  # Store a copy
-        logger.debug(f"Task added: {task.task_id}")
+        # Store a deep copy to prevent external modifications
+        task_copy = deepcopy(task)
+        self._tasks[task.task_id] = task_copy
+        # Return another deep copy consistent with get_task behavior
+        return deepcopy(task_copy)
 
-    async def get_task(self, task_id: str) -> Optional[Task]:
-        """
-        Retrieves a task by its ID.
-
-        Args:
-            task_id: The unique identifier of the task.
-
-        Returns:
-            The Task object if found, otherwise None.
-        """
+    async def get_task(self, task_id: str) -> Task:
+        """Retrieves a task by its ID from memory."""
         task = self._tasks.get(task_id)
-        if task:
-            logger.debug(f"Task retrieved: {task_id}")
-            return task.model_copy(deep=True)  # Return a copy
-        logger.debug(f"Task not found: {task_id}")
-        return None
+        if task is None:
+            raise TaskNotFoundError(f"Task with ID '{task_id}' not found.")
+        # Return a deep copy to prevent external modifications
+        return deepcopy(task)
 
-    async def update_task_status(self, task_id: str, status: TaskStatus) -> Task:
-        """
-        Updates the status of an existing task.
+    async def update_task_status(self, task_id: str, status: TaskStatus, error_message: Optional[str] = None) -> Task:
+        """Updates the status of an existing task in memory."""
+        if task_id not in self._tasks:
+            raise TaskNotFoundError(f"Task with ID '{task_id}' not found for status update.")
 
-        Args:
-            task_id: The ID of the task to update.
-            status: The new TaskStatus.
+        # Get the stored task (it's already a copy)
+        task_to_update = self._tasks[task_id]
+        # Use the model's helper method
+        task_to_update.update_status(status, error_message)
+        # Store the updated copy
+        self._tasks[task_id] = task_to_update
+        # Return a new deep copy
+        return deepcopy(task_to_update)
 
-        Returns:
-            The updated Task object.
+    async def update_task_output(self, task_id: str, result: Any = None, error_message: Optional[str] = None) -> Task:
+        """Updates the output data/error of a completed task in memory."""
+        if task_id not in self._tasks:
+            raise TaskNotFoundError(f"Task with ID '{task_id}' not found for output update.")
 
-        Raises:
-            TaskNotFoundError: If the task with the given ID is not found.
-        """
-        task = self._tasks.get(task_id)
-        if not task:
-            logger.warning(f"Attempted to update status of non-existent task: {task_id}")
-            raise TaskNotFoundError(task_id)
+        task_to_update = self._tasks[task_id]
+        task_to_update.result = result
+        task_to_update.error_message = error_message
+        # Determine final status based on error
+        final_status = TaskStatus.FAILED if error_message else TaskStatus.COMPLETED
+        task_to_update.update_status(final_status, error_message) # Update status and timestamps
 
-        # Update the status on the fetched task object.
-        # The caller should have already updated other fields like output_data or error_message
-        # on a task object before calling this, or used task.update_status().
-        # This method primarily ensures the status field itself is updated in the store.
-        task.status = status
-        task.updated_at = current_utc_time() # Ensure updated_at is set
-        # No need to replace the object, as 'task' is a reference to the object in the dict.
-        # Modifications to 'task.status' and 'task.updated_at' directly affect the stored object.
+        self._tasks[task_id] = task_to_update
+        return deepcopy(task_to_update)
 
-        logger.info(f"Task status updated in store: {task_id} -> {status.name}")
-        return task.model_copy(deep=True) # Return a copy of the updated task
+    async def list_tasks(self, limit: int = 100, offset: int = 0, status: Optional[TaskStatus] = None) -> List[Task]:
+        """Lists tasks from memory, optionally filtering by status."""
+        # Sort by created_at descending to mimic DB behavior (optional, but good practice)
+        sorted_tasks = sorted(self._tasks.values(), key=lambda t: t.created_at, reverse=True)
 
-    async def update_task_output(
-        self,
-        task_id: str,
-        result: Optional[Any] = None, # Changed from output_data
-        error_message: Optional[str] = None,
-    ) -> Task:
-        """
-        Updates the result data and/or error message of an existing task,
-        and sets the status accordingly (FAILED if error, COMPLETED if result).
-
-        Args:
-            task_id: The ID of the task to update.
-            result: The new result data for the task.
-            error_message: The new error message for the task.
-
-        Returns:
-            The updated Task object.
-
-        Raises:
-            TaskNotFoundError: If the task with the given ID is not found.
-        """
-        task = self._tasks.get(task_id)
-        if not task:
-            logger.warning(f"Attempted to update output of non-existent task: {task_id}")
-            raise TaskNotFoundError(task_id)
-
-        task.result = result # Changed from output_data
-        task.error_message = error_message
-        task.updated_at = current_utc_time() # Ensure updated_at is set
-
-        # Update status based on outcome
-        if error_message:
-            task.status = TaskStatus.FAILED
-            logger.info(f"Task {task_id} updated with error status.")
-        elif result is not None: # Check if result is explicitly provided (even if None)
-             # Consider if result being None should also mean completed? For now, require non-None result.
-             # Let's assume any non-error result means completed for now.
-            task.status = TaskStatus.COMPLETED
-            logger.info(f"Task {task_id} updated with completed status.")
-        # Else: Status remains unchanged if neither result nor error is provided? Or should default to COMPLETED?
-        # Let's stick to explicit updates for now.
-
-        logger.info(f"Task result/error updated in store: {task_id}")
-        return task.model_copy(deep=True) # Return a copy of the updated task
-
-    async def list_tasks(
-        self, status_filter: Optional[TaskStatus] = None
-    ) -> List[Task]:
-        """
-        Lists tasks currently in the store, optionally filtering by status.
-
-        Args:
-            status_filter: If provided, only tasks with this status are returned.
-
-        Returns:
-            A list of Task objects matching the criteria.
-        """
-        tasks = list(self._tasks.values())
-        if status_filter:
-            filtered_tasks = [
-                task for task in tasks if task.status == status_filter
-            ]
-            logger.debug(
-                f"Listed {len(filtered_tasks)} tasks with status {status_filter.name}"
-            )
-            # Return copies
-            return [task.model_copy(deep=True) for task in filtered_tasks]
+        filtered_tasks: List[Task] = []
+        if status:
+            for task in sorted_tasks:
+                if task.status == status:
+                    filtered_tasks.append(task)
         else:
-            logger.debug(f"Listed all {len(tasks)} tasks.")
-            # Return copies
-            return [task.model_copy(deep=True) for task in tasks]
+            filtered_tasks = sorted_tasks
 
-    async def delete_task(self, task_id: str) -> bool:
-        """
-        Deletes a task from the store.
+        # Apply limit and offset
+        paginated_tasks = filtered_tasks[offset : offset + limit]
 
-        Args:
-            task_id: The ID of the task to delete.
+        # Return deep copies
+        return [deepcopy(task) for task in paginated_tasks]
 
-        Returns:
-            True if the task was deleted, False if it was not found.
-        """
-        if task_id in self._tasks:
-            del self._tasks[task_id]
-            logger.info(f"Task deleted: {task_id}")
-            return True
-        logger.warning(f"Attempted to delete non-existent task: {task_id}")
-        return False
+# Note: Focusing on SqlMetadataStore for primary implementation.
+# InMemory version kept for potential test compatibility.

@@ -16,6 +16,7 @@ ops_core/mcp_client/__init__.py
 ops_core/mcp_client/client.py
 ops_core/mcp_client/proxy_tool.py
 ops_core/metadata/__init__.py
+ops_core/metadata/sql_store.py
 ops_core/metadata/store.py
 ops_core/models/__init__.py
 ops_core/models/tasks.py

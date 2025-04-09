@@ -23,6 +23,9 @@ dependencies = [
     "grpcio==1.62.1", # Pinned for gRPC runtime
     "grpcio-tools==1.62.1", # Pinned for gRPC code generation (match grpcio)
     "dramatiq[rabbitmq]>=1.17.0", # Added for async task queue
+    "sqlmodel>=0.0.16", # Added for SQL DB interaction
+    "asyncpg>=0.29.0", # Added for async PostgreSQL driver
+    "alembic>=1.13.1", # Added for database migrations
 ]
 
 [tool.setuptools.packages.find]

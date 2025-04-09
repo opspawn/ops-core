@@ -80,9 +80,11 @@ async def test_get_task(store: InMemoryMetadataStore, sample_task: Task):
 
 @pytest.mark.asyncio
 async def test_get_task_not_found(store: InMemoryMetadataStore):
-    """Test retrieving a non-existent task."""
-    non_existent_id = uuid.uuid4()
-    assert await store.get_task(non_existent_id) is None
+    """Test retrieving a non-existent task raises TaskNotFoundError."""
+    non_existent_id = f"task_{uuid.uuid4()}" # Use string ID format
+    with pytest.raises(TaskNotFoundError) as excinfo:
+        await store.get_task(non_existent_id)
+    assert non_existent_id in str(excinfo.value)
 
 
 @pytest.mark.asyncio

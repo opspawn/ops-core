@@ -10,3 +10,6 @@ uvicorn[standard]>=0.29.0
 grpcio==1.62.1
 grpcio-tools==1.62.1
 dramatiq[rabbitmq]>=1.17.0
+sqlmodel>=0.0.16
+asyncpg>=0.29.0
+alembic>=1.13.1

@@ -4,15 +4,67 @@ Global pytest fixtures and configuration for ops_core tests.
 
 import pytest
 import pytest_asyncio
+import asyncio
 from unittest.mock import patch, MagicMock, AsyncMock
 
 from dramatiq.brokers.stub import StubBroker
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker
+from sqlmodel import SQLModel # Import SQLModel
+
+from ops_core.config.loader import get_resolved_mcp_config # Import config loader
 
 from ops_core.config.loader import McpConfig # Import the type
-from ops_core.metadata.store import InMemoryMetadataStore
+from ops_core.metadata.store import InMemoryMetadataStore # Keep for other tests
 from ops_core.mcp_client.client import OpsMcpClient
 from ops_core.scheduler.engine import execute_agent_task_actor # Import actor to get queue name
 
+# --- Database Fixtures for SqlMetadataStore Tests ---
+
+# Use a separate test database URL if possible, or ensure clean state
+# For simplicity here, we'll use the default but manage tables.
+# In a real scenario, use a dedicated test DB URL via env var.
+TEST_DATABASE_URL = get_resolved_mcp_config().database_url
+# Modify URL slightly if needed for testing (e.g., different DB name)
+# TEST_DATABASE_URL = TEST_DATABASE_URL.replace("/opspawn_db", "/test_opspawn_db")
+
+@pytest.fixture(scope="session")
+def event_loop():
+    """Create an instance of the default event loop for session scope."""
+    loop = asyncio.get_event_loop_policy().new_event_loop()
+    yield loop
+    loop.close()
+
+@pytest_asyncio.fixture(scope="session")
+async def db_engine():
+    """Creates an async engine for the test session."""
+    # Disable statement cache for testing to avoid InvalidCachedStatementError
+    engine = create_async_engine(TEST_DATABASE_URL, echo=False, statement_cache_size=0)
+    yield engine
+    await engine.dispose()
+
+@pytest_asyncio.fixture(scope="function")
+async def db_session(db_engine):
+    """
+    Provides a clean database state and an AsyncSession for each test function.
+    Creates tables before the test and drops them afterwards.
+    """
+    async with db_engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.create_all)
+
+    AsyncTestSessionLocal = sessionmaker(
+        bind=db_engine, class_=AsyncSession, expire_on_commit=False
+    )
+    async with AsyncTestSessionLocal() as session:
+        yield session
+        # Optional: You might want additional cleanup logic here if needed
+
+    # Drop tables after the test
+    async with db_engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.drop_all)
+
+
+# --- Existing Fixtures ---
 
 @pytest_asyncio.fixture(scope="function")
 async def mock_metadata_store() -> InMemoryMetadataStore:
