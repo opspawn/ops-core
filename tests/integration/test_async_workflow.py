@@ -14,6 +14,7 @@ import uuid
 import dramatiq # Import the main dramatiq library
 from dramatiq import Worker, get_broker, Message, set_broker # Import Worker, get_broker, Message, set_broker
 from dramatiq.brokers.stub import StubBroker # Import StubBroker
+from dramatiq.actor import Actor # Import Actor for queue name access
 # Import the rabbitmq module directly
 # import dramatiq.brokers.rabbitmq # No longer needed
 # from dramatiq.brokers.rabbitmq import RabbitMQBroker # Import RabbitMQBroker
@@ -60,6 +61,16 @@ def stub_broker() -> StubBroker:
     # Clean up after test
     broker.flush_all()
     set_broker(None) # Unset global broker
+
+@pytest.fixture() # No longer async needed for worker fixture itself
+def stub_worker(stub_broker: StubBroker):
+    """Creates a worker instance for the stub broker. Does NOT start it."""
+    # Use a short timeout for testing
+    worker = Worker(stub_broker, worker_timeout=100)
+    # worker.start() # Removed: Start manually in test after patching
+    yield worker
+    # worker.stop() # Removed: Stop manually in test
+
 
 @pytest_asyncio.fixture(scope="function")
 async def test_metadata_store() -> InMemoryMetadataStore:
@@ -186,25 +197,44 @@ async def test_rest_api_async_agent_workflow_success(
     test_metadata_store: InMemoryMetadataStore, # Keep store for verification
     stub_broker: StubBroker, # Use StubBroker fixture
     mock_mcp_client: MagicMock, # Need this for patching getter
+    stub_worker: Worker, # Add worker fixture
     mocker: MockerFixture,
 ):
     """
-    Verify REST API -> Queue -> Worker (Stub) -> Actor (Mocked Agent) -> Success Status Update.
+    Verify REST API -> Queue -> Worker (Stub) -> Actor Execution -> Success Status Update.
+    Mocks Agent.run within the actor's logic.
     """
     # --- Arrange ---
     # Broker is set globally by the fixture
-    agent_final_result = "Agent run successful!"
-    agent_history = ["Step 1", "Step 2"] # Keep for expected result simulation
+    agent_final_result = {"status": "Success", "output": "Agent run successful!"}
+    agent_history = ["Step 1", "Step 2"]
 
     # Patch dependency getters at their source in the dependencies module
+    # This ensures the actor logic uses our test store and mock client
     mocker.patch('ops_core.dependencies.get_metadata_store', return_value=test_metadata_store)
     mocker.patch('ops_core.dependencies.get_mcp_client', return_value=mock_mcp_client)
 
-    # Patch the actor's send method
-    mock_send = mocker.patch('ops_core.scheduler.engine.execute_agent_task_actor.send')
+    # Force the actor instance to use the stub_broker for this test
+    mocker.patch.object(execute_agent_task_actor, 'broker', stub_broker)
+    # Declare the actor's queue on the stub broker
+    actor_instance: Actor = execute_agent_task_actor
+    stub_broker.declare_queue(actor_instance.queue_name)
+    # Patch the broker's get_actor method to return the correct actor instance
+    mocker.patch.object(stub_broker, 'get_actor', return_value=execute_agent_task_actor)
+
+    # Mock the Agent's run method directly where it's called inside _run_agent_task_logic
+    # Note: The target path depends on where Agent is imported in engine.py
+    mock_agent_run = mocker.patch('ops_core.scheduler.engine.Agent.run', new_callable=AsyncMock, return_value=agent_final_result)
+
+    # Mock the memory context retrieval used after agent.run
+    mock_get_context = mocker.patch('agentkit.memory.short_term.ShortTermMemory.get_context', new_callable=AsyncMock, return_value=agent_history)
+
+    # Start the worker *after* patches are applied
+    stub_worker.start()
 
     task_data = {"task_type": "agent_run", "input_data": {"goal": "async rest goal"}}
     task_id = None
+    actor_instance: Actor = execute_agent_task_actor # Get actor instance for queue name
 
     # --- Act ---
     # 1. Submit task via REST API
@@ -220,19 +250,26 @@ async def test_rest_api_async_agent_workflow_success(
     assert stored_task_before.status == TaskStatus.PENDING
 
     # --- Assert ---
-    # 3. Verify the actor's send method was called correctly
-    mock_send.assert_called_once_with(
-        task_id=task_id,
-        goal=task_data["input_data"].get("goal", "No goal specified"),
-        input_data=task_data["input_data"]
-    )
+    # 3. Process the message using the stub broker and worker
+    # Use fail_fast=True to see exceptions from the actor immediately
+    stub_broker.join(actor_instance.queue_name, fail_fast=True)
+    # stub_worker.join() # Removed: stub_broker.join should handle waiting for processing
 
-    # 4. Verify the task status remains PENDING in the store (actor execution is mocked)
-    # Use asyncio.sleep for a very short duration to allow potential background processing
-    await asyncio.sleep(0.01)
+    # 4. Verify Agent.run was called by the actor logic
+    mock_agent_run.assert_awaited_once_with(goal=task_data["input_data"]["goal"])
+    mock_get_context.assert_awaited_once() # Verify memory was accessed
+
+    # 5. Verify the task status is COMPLETED in the test store
     final_task = await test_metadata_store.get_task(task_id)
     assert final_task is not None
-    assert final_task.status == TaskStatus.PENDING
+    assert final_task.status == TaskStatus.COMPLETED
+    assert final_task.result is not None
+    assert final_task.result.get("agent_outcome") == agent_final_result
+    assert final_task.result.get("memory_history") == agent_history
+    assert final_task.error_message is None
+
+    # Stop the worker
+    stub_worker.stop()
 
 
 @pytest.mark.asyncio
@@ -241,22 +278,37 @@ async def test_grpc_api_async_agent_workflow_success(
     test_metadata_store: InMemoryMetadataStore,
     stub_broker: StubBroker, # Use StubBroker fixture
     mock_mcp_client: MagicMock, # Need this for patching getter
+    stub_worker: Worker, # Add worker fixture
     mocker: MockerFixture,
 ):
     """
-    Verify gRPC API -> Queue -> Worker (Stub) -> Actor (Mocked Agent) -> Success Status Update.
+    Verify gRPC API -> Queue -> Worker (Stub) -> Actor Execution -> Success Status Update.
+    Mocks Agent.run within the actor's logic.
     """
     # --- Arrange ---
     # Broker is set globally by the fixture
-    agent_final_result = "Agent run successful via gRPC!"
-    agent_history = ["gRPC Step 1"] # Keep for simulation
+    agent_final_result = {"status": "Success", "output": "Agent run successful via gRPC!"}
+    agent_history = ["gRPC Step 1"]
 
     # Patch dependency getters at their source in the dependencies module
     mocker.patch('ops_core.dependencies.get_metadata_store', return_value=test_metadata_store)
     mocker.patch('ops_core.dependencies.get_mcp_client', return_value=mock_mcp_client)
 
-    # Patch the actor's send method
-    mock_send = mocker.patch('ops_core.scheduler.engine.execute_agent_task_actor.send')
+    # Force the actor instance to use the stub_broker for this test
+    mocker.patch.object(execute_agent_task_actor, 'broker', stub_broker)
+    # Declare the actor's queue on the stub broker
+    actor_instance: Actor = execute_agent_task_actor
+    stub_broker.declare_queue(actor_instance.queue_name)
+    # Patch the broker's get_actor method to return the correct actor instance
+    mocker.patch.object(stub_broker, 'get_actor', return_value=execute_agent_task_actor)
+
+    # Mock the Agent's run method directly
+    mock_agent_run = mocker.patch('ops_core.scheduler.engine.Agent.run', new_callable=AsyncMock, return_value=agent_final_result)
+    # Mock the memory context retrieval
+    mock_get_context = mocker.patch('agentkit.memory.short_term.ShortTermMemory.get_context', new_callable=AsyncMock, return_value=agent_history)
+
+    # Start the worker *after* patches are applied
+    stub_worker.start()
 
     input_dict = {"goal": "async grpc goal"}
     input_struct = tasks_pb2.google_dot_protobuf_dot_struct__pb2.Struct()
@@ -278,19 +330,27 @@ async def test_grpc_api_async_agent_workflow_success(
     assert stored_task_before is not None
     assert stored_task_before.status == TaskStatus.PENDING
 
-     # --- Assert ---
-    # 3. Verify the actor's send method was called correctly
-    mock_send.assert_called_once_with(
-        task_id=task_id,
-        goal=input_dict.get("goal", "No goal specified"),
-        input_data=input_dict
-    ) # Input data is dict here
+    # --- Assert ---
+    # 3. Process the message using the stub broker and worker
+    actor_instance: Actor = execute_agent_task_actor
+    stub_broker.join(actor_instance.queue_name, fail_fast=True)
+    # stub_worker.join() # Removed: stub_broker.join should handle waiting for processing
 
-    # 4. Verify the task status remains PENDING in the store (actor execution is mocked)
-    await asyncio.sleep(0.01)
+    # 4. Verify Agent.run was called
+    mock_agent_run.assert_awaited_once_with(goal=input_dict["goal"])
+    mock_get_context.assert_awaited_once()
+
+    # 5. Verify the task status is COMPLETED in the test store
     final_task = await test_metadata_store.get_task(task_id)
     assert final_task is not None
-    assert final_task.status == TaskStatus.PENDING
+    assert final_task.status == TaskStatus.COMPLETED
+    assert final_task.result is not None
+    assert final_task.result.get("agent_outcome") == agent_final_result
+    assert final_task.result.get("memory_history") == agent_history
+    assert final_task.error_message is None
+
+    # Stop the worker
+    stub_worker.stop()
 
 
 @pytest.mark.asyncio
@@ -299,22 +359,38 @@ async def test_rest_api_async_agent_workflow_failure(
     test_metadata_store: InMemoryMetadataStore,
     stub_broker: StubBroker, # Use StubBroker fixture
     mock_mcp_client: MagicMock, # Need this for patching getter
+    stub_worker: Worker, # Add worker fixture
     mocker: MockerFixture,
 ):
     """
-    Verify REST API -> Queue -> Worker (Stub) -> Actor (Mocked Agent Failure) -> Failure Status Update.
+    Verify REST API -> Queue -> Worker (Stub) -> Actor Execution (Agent Failure) -> Failure Status Update.
+    Mocks Agent.run to raise an exception.
     """
     # --- Arrange ---
     # Broker is set globally by the fixture
     agent_error_message = "Agent failed intentionally during run"
-    agent_exception = ValueError(agent_error_message) # Keep for simulation
+    agent_exception = ValueError(agent_error_message)
+    agent_history_before_fail = ["Step 1 - Fail"]
 
-    # Patch dependency getters at their source in the dependencies module
+    # Patch dependency getters
     mocker.patch('ops_core.dependencies.get_metadata_store', return_value=test_metadata_store)
     mocker.patch('ops_core.dependencies.get_mcp_client', return_value=mock_mcp_client)
 
-    # Patch the actor's send method
-    mock_send = mocker.patch('ops_core.scheduler.engine.execute_agent_task_actor.send')
+    # Force the actor instance to use the stub_broker for this test
+    mocker.patch.object(execute_agent_task_actor, 'broker', stub_broker)
+    # Declare the actor's queue on the stub broker
+    actor_instance: Actor = execute_agent_task_actor
+    stub_broker.declare_queue(actor_instance.queue_name)
+    # Patch the broker's get_actor method to return the correct actor instance
+    mocker.patch.object(stub_broker, 'get_actor', return_value=execute_agent_task_actor)
+
+    # Mock Agent.run to raise an exception
+    mock_agent_run = mocker.patch('ops_core.scheduler.engine.Agent.run', new_callable=AsyncMock, side_effect=agent_exception)
+    # Mock memory context retrieval (might still be called before exception)
+    mock_get_context = mocker.patch('agentkit.memory.short_term.ShortTermMemory.get_context', new_callable=AsyncMock, return_value=agent_history_before_fail)
+
+    # Start the worker *after* patches are applied
+    stub_worker.start()
 
     task_data = {"task_type": "agent_run", "input_data": {"goal": "async failure goal"}}
     task_id = None
@@ -331,15 +407,28 @@ async def test_rest_api_async_agent_workflow_failure(
     assert stored_task_before.status == TaskStatus.PENDING
 
     # --- Assert ---
-    # 3. Verify the actor's send method was called correctly
-    mock_send.assert_called_once_with(
-        task_id=task_id,
-        goal=task_data["input_data"].get("goal", "No goal specified"),
-        input_data=task_data["input_data"]
-    )
+    # 3. Process the message using the stub broker and worker
+    actor_instance: Actor = execute_agent_task_actor
+    # Use fail_fast=True to catch the agent exception if it propagates
+    # Note: Dramatiq might retry internally first, so fail_fast might not catch it immediately
+    # unless retries are disabled or exhausted for the actor.
+    # For simplicity here, we assume default retries might happen,
+    # but the final state should be FAILED.
+    stub_broker.join(actor_instance.queue_name, fail_fast=False) # Don't fail test immediately
+    stub_worker.join()
 
-    # 4. Verify the task status remains PENDING in the store (actor execution is mocked)
-    await asyncio.sleep(0.01)
+    # 4. Verify Agent.run was called
+    mock_agent_run.assert_awaited_once_with(goal=task_data["input_data"]["goal"])
+    # Memory context might or might not be called depending on where Agent.run fails
+    # mock_get_context.assert_awaited_once() # Optional assertion
+
+    # 5. Verify the task status is FAILED in the test store
     final_task = await test_metadata_store.get_task(task_id)
     assert final_task is not None
-    assert final_task.status == TaskStatus.PENDING
+    assert final_task.status == TaskStatus.FAILED
+    assert final_task.result is not None # Result dict might still be populated by actor's error handling
+    assert final_task.result.get("error") == "Agent execution failed unexpectedly." # Check error in result dict
+    assert final_task.error_message == agent_error_message # Check the specific error message
+
+    # Stop the worker
+    stub_worker.stop()

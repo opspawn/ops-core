@@ -197,9 +197,11 @@ async def _run_agent_task_logic(task_id: str, goal: str, input_data: Dict[str, A
 
         # --- Update Metadata Store ---
         final_status = TaskStatus.COMPLETED if agent_result.get("status") != "Failed" else TaskStatus.FAILED
+        # Retrieve memory content using the correct method name
+        memory_content = await agent.memory.get_context()
         task_result_data = {
             "agent_outcome": agent_result,
-            "memory_history": agent.memory.get_history(), # Include memory
+            "memory_history": memory_content, # Include memory
         }
         error_message = agent_result.get("reason") if final_status == TaskStatus.FAILED else None
 
