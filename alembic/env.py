@@ -2,6 +2,11 @@ import asyncio # Import asyncio
 import os
 import sys
 from logging.config import fileConfig
+from dotenv import load_dotenv # Import load_dotenv
+
+# Load environment variables from .env file in the project root
+# Assumes alembic is run from the ops_core directory
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
 # Import async engine creation
 from sqlalchemy.ext.asyncio import async_engine_from_config

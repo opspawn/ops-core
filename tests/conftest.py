@@ -38,8 +38,8 @@ def event_loop():
 @pytest_asyncio.fixture(scope="session")
 async def db_engine():
     """Creates an async engine for the test session."""
-    # Disable statement cache for testing to avoid InvalidCachedStatementError
-    engine = create_async_engine(TEST_DATABASE_URL, echo=False, statement_cache_size=0)
+    # statement_cache_size is incompatible with asyncpg
+    engine = create_async_engine(TEST_DATABASE_URL, echo=False)
     yield engine
     await engine.dispose()
 
