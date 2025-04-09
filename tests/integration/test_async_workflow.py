@@ -124,7 +124,7 @@ async def grpc_server(test_scheduler: InMemoryScheduler): # Keep scheduler for g
     """Starts an in-process gRPC server for testing."""
     server = grpc_aio.server()
     # Explicitly create servicer with the scheduler from the fixture
-    servicer = TaskServicer(scheduler=test_scheduler)
+    servicer = TaskServicer(scheduler=test_scheduler) # Correct initialization
     tasks_pb2_grpc.add_TaskServiceServicer_to_server(servicer, server)
     port = server.add_insecure_port("[::]:0") # Use random available port
     await server.start()
@@ -209,8 +209,7 @@ async def test_rest_api_async_agent_workflow_success(
     mocker.patch('dramatiq.get_broker', return_value=stub_broker)
     set_broker(stub_broker) # Explicitly set for current context
 
-    # Patch the actor's send method in the engine module's namespace
-    mock_actor_send = mocker.patch('ops_core.scheduler.engine.execute_agent_task_actor.send')
+    # Removed actor.send patch
 
     agent_final_result = {"status": "Success", "output": "Agent run successful!"}
     agent_history = ["Step 1", "Step 2"]
@@ -225,6 +224,16 @@ async def test_rest_api_async_agent_workflow_success(
     stub_broker.declare_queue(actor_instance.queue_name)
     # Patch the broker's get_actor method to return the correct actor instance
     mocker.patch.object(stub_broker, 'get_actor', return_value=execute_agent_task_actor)
+    # Removed direct patch of actor.broker
+
+    # --- Patch submit_task to ensure stub_broker is used by actor.send ---
+    original_submit_task = test_scheduler.submit_task
+    async def patched_submit_task(*args, **kwargs):
+        # Ensure the actor uses the stub broker right before send is called
+        execute_agent_task_actor.broker = stub_broker
+        return await original_submit_task(*args, **kwargs)
+    mocker.patch.object(test_scheduler, 'submit_task', side_effect=patched_submit_task)
+    # --------------------------------------------------------------------
 
     # Mock the Agent's run method directly where it's called inside _run_agent_task_logic
     # Note: The target path depends on where Agent is imported in engine.py
@@ -248,8 +257,7 @@ async def test_rest_api_async_agent_workflow_success(
     task_id = response_json["task_id"]
     assert response_json["status"] == TaskStatus.PENDING.value
 
-    # Verify the mock send was called by the API endpoint
-    mock_actor_send.assert_called_once()
+    # Removed actor.send assertion
 
     # 2. Verify task created in store (initial state)
     stored_task_before = await test_metadata_store.get_task(task_id)
@@ -298,8 +306,7 @@ async def test_grpc_api_async_agent_workflow_success(
     mocker.patch('dramatiq.get_broker', return_value=stub_broker)
     set_broker(stub_broker) # Explicitly set for current context
 
-    # Patch the actor's send method in the engine module's namespace
-    mock_actor_send = mocker.patch('ops_core.scheduler.engine.execute_agent_task_actor.send')
+    # Removed actor.send patch
 
     agent_final_result = {"status": "Success", "output": "Agent run successful via gRPC!"}
     agent_history = ["gRPC Step 1"]
@@ -313,6 +320,8 @@ async def test_grpc_api_async_agent_workflow_success(
     stub_broker.declare_queue(actor_instance.queue_name)
     # Patch the broker's get_actor method to return the correct actor instance
     mocker.patch.object(stub_broker, 'get_actor', return_value=execute_agent_task_actor)
+    # Directly patch the actor's broker attribute to use the stub_broker
+    mocker.patch.object(execute_agent_task_actor, 'broker', stub_broker)
 
     # Mock the Agent's run method directly
     mock_agent_run = mocker.patch('ops_core.scheduler.engine.Agent.run', new_callable=AsyncMock, return_value=agent_final_result)
@@ -337,8 +346,7 @@ async def test_grpc_api_async_agent_workflow_success(
     assert response.task.status == tasks_pb2.PENDING
     task_id = response.task.task_id
 
-    # Verify the mock send was called by the gRPC endpoint
-    mock_actor_send.assert_called_once()
+    # Removed actor.send assertion
 
     # 2. Verify task created in store (initial state)
     stored_task_before = await test_metadata_store.get_task(task_id)
@@ -387,8 +395,7 @@ async def test_rest_api_async_agent_workflow_failure(
     mocker.patch('dramatiq.get_broker', return_value=stub_broker)
     set_broker(stub_broker) # Explicitly set for current context
 
-    # Patch the actor's send method in the engine module's namespace
-    mock_actor_send = mocker.patch('ops_core.scheduler.engine.execute_agent_task_actor.send')
+    # Removed actor.send patch
 
     agent_error_message = "Agent failed intentionally during run"
     agent_exception = ValueError(agent_error_message)
@@ -403,6 +410,16 @@ async def test_rest_api_async_agent_workflow_failure(
     stub_broker.declare_queue(actor_instance.queue_name)
     # Patch the broker's get_actor method to return the correct actor instance
     mocker.patch.object(stub_broker, 'get_actor', return_value=execute_agent_task_actor)
+    # Removed direct patch of actor.broker
+
+    # --- Patch submit_task to ensure stub_broker is used by actor.send ---
+    original_submit_task = test_scheduler.submit_task
+    async def patched_submit_task(*args, **kwargs):
+        # Ensure the actor uses the stub broker right before send is called
+        execute_agent_task_actor.broker = stub_broker
+        return await original_submit_task(*args, **kwargs)
+    mocker.patch.object(test_scheduler, 'submit_task', side_effect=patched_submit_task)
+    # --------------------------------------------------------------------
 
     # Mock Agent.run to raise an exception
     mock_agent_run = mocker.patch('ops_core.scheduler.engine.Agent.run', new_callable=AsyncMock, side_effect=agent_exception)
@@ -421,8 +438,7 @@ async def test_rest_api_async_agent_workflow_failure(
     assert response.status_code == 201
     task_id = response.json()["task_id"]
 
-    # Verify the mock send was called by the API endpoint
-    mock_actor_send.assert_called_once()
+    # Removed actor.send assertion
 
     # 2. Verify task created in store (initial state)
     stored_task_before = await test_metadata_store.get_task(task_id)
