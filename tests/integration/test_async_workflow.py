@@ -47,18 +47,16 @@ def test_app_components_async(mock_metadata_store, mock_mcp_client, stub_broker,
     fastapi_app.dependency_overrides[tasks_api.get_scheduler] = lambda: test_scheduler
 
     # Patch the config loader and prevent dramatiq from setting a real broker
+    # Also patch dramatiq.get_broker globally to ensure StubBroker is used
     with patch("ops_core.mcp_client.client.get_resolved_mcp_config", return_value=McpConfig(servers={})), \
-         patch("dramatiq.set_broker"):
-        # --- Patch actor's broker directly ---
-        original_broker = execute_agent_task_actor.broker
-        execute_agent_task_actor.broker = stub_broker
-        # ------------------------------------
+         patch("dramatiq.set_broker"), \
+         patch("dramatiq.get_broker", return_value=stub_broker):
+        # Removed direct patching of actor.broker
         try:
             test_client = TestClient(fastapi_app)
             yield test_client, test_store, test_scheduler, mock_mcp_client, stub_broker
         finally:
-            # Restore original broker
-            execute_agent_task_actor.broker = original_broker
+            # No need to restore actor.broker
             # Cleanup overrides
             fastapi_app.dependency_overrides = {}
 
