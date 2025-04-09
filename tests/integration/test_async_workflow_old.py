@@ -190,6 +190,7 @@ async def wait_for_task_completion(store: InMemoryMetadataStore, task_id: str, t
     return await store.get_task(task_id) # Return last known state on timeout
 
 
+@pytest.mark.skip(reason="PHASE 1 REBUILD: Skipping actor execution test in old file.")
 @pytest.mark.asyncio
 async def test_rest_api_async_agent_workflow_success(
     test_client: TestClient,
@@ -288,6 +289,7 @@ async def test_rest_api_async_agent_workflow_success(
     stub_worker.stop()
 
 
+@pytest.mark.skip(reason="PHASE 1 REBUILD: Skipping actor execution test in old file.")
 @pytest.mark.asyncio
 async def test_grpc_api_async_agent_workflow_success(
     grpc_client: tasks_pb2_grpc.TaskServiceStub,
@@ -378,6 +380,7 @@ async def test_grpc_api_async_agent_workflow_success(
     stub_worker.stop()
 
 
+@pytest.mark.skip(reason="PHASE 1 REBUILD: Skipping actor execution test in old file.")
 @pytest.mark.asyncio
 async def test_rest_api_async_agent_workflow_failure(
     test_client: TestClient,

@@ -11,7 +11,7 @@ from dramatiq.brokers.stub import StubBroker
 from ops_core.config.loader import McpConfig # Import the type
 from ops_core.metadata.store import InMemoryMetadataStore
 from ops_core.mcp_client.client import OpsMcpClient
-# from ops_core.scheduler.engine import execute_agent_task_actor # Import actor to get queue name # PHASE 1 REBUILD: Commented out
+from ops_core.scheduler.engine import execute_agent_task_actor # Import actor to get queue name
 
 
 @pytest_asyncio.fixture(scope="function")
@@ -32,10 +32,10 @@ async def mock_mcp_client() -> MagicMock:
 
 @pytest.fixture(scope="function")
 def stub_broker():
-    """Provides a Dramatiq StubBroker.""" # PHASE 1 REBUILD: Removed queue declaration
+    """Provides a Dramatiq StubBroker."""
     broker = StubBroker()
     # Explicitly declare the queue used by the actor
-    # broker.declare_queue(execute_agent_task_actor.queue_name) # PHASE 1 REBUILD: Commented out
+    broker.declare_queue(execute_agent_task_actor.queue_name)
     # Middleware might be needed if tests rely on it, add here if necessary
     # broker.add_middleware(...)
     yield broker

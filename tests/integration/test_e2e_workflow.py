@@ -67,10 +67,10 @@ def test_app_components(mock_mcp_client): # Removed stub_broker
     # Configure the mock MCP client to have the '_is_running' attribute
     mock_mcp_client._is_running = True
 
-    # Patch the config loader and the actor's send method
-    with patch("ops_core.mcp_client.client.get_resolved_mcp_config", return_value=McpConfig(servers={})): # PHASE 1 REBUILD: Removed actor patch
-         # patch("ops_core.scheduler.engine.execute_agent_task_actor.send", MagicMock()) as mock_actor_send: # Patch send directly # PHASE 1 REBUILD: Commented out
-        mock_actor_send = MagicMock() # Create a dummy mock to satisfy yield structure
+    # Patch the config loader and the actor's send method globally for this fixture's scope
+    with patch("ops_core.mcp_client.client.get_resolved_mcp_config", return_value=McpConfig(servers={})), \
+         patch("ops_core.scheduler.engine.execute_agent_task_actor.send", MagicMock()) as mock_actor_send: # Patch send globally here
+        # mock_actor_send = MagicMock() # No longer needed, patch provides it
         test_client = TestClient(app)
         # Yield all components needed by the tests, including the mock send
         yield test_client, test_store, test_scheduler, mock_mcp_client, mock_actor_send
@@ -154,7 +154,7 @@ async def test_e2e_successful_agent_task(
     # assert final_task.error_message is None # Check error_message field
 
     # Assert mock_actor_send was called (This remains valid)
-    # mock_actor_send.assert_called_once() # PHASE 1 REBUILD: Commented out as send is commented out in source
+    mock_actor_send.assert_called_once()
 
 
 async def test_e2e_failed_agent_task(
@@ -214,7 +214,7 @@ async def test_e2e_failed_agent_task(
     # assert agent_error_message in final_task.error_message # Check error_message field matches the exception
 
     # Assert mock_actor_send was called (This remains valid)
-    # mock_actor_send.assert_called_once() # PHASE 1 REBUILD: Commented out as send is commented out in source
+    mock_actor_send.assert_called_once()
 
 
 async def test_e2e_mcp_proxy_agent_task(
@@ -345,4 +345,4 @@ async def test_e2e_mcp_proxy_agent_task(
     # assert final_task.error_message is None # Check error_message field
 
     # Assert mock_actor_send was called (This remains valid)
-    # mock_actor_send.assert_called_once() # PHASE 1 REBUILD: Commented out as send is commented out in source
+    mock_actor_send.assert_called_once()
