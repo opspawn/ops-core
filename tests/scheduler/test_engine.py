@@ -38,8 +38,8 @@ def test_scheduler_initialization(scheduler: InMemoryScheduler, mock_store: Magi
 
 @pytest.mark.asyncio
 # Patch the actor's send method within the test's scope
-@patch("ops_core.scheduler.engine.execute_agent_task_actor.send")
-async def test_submit_task(mock_actor_send: MagicMock, scheduler: InMemoryScheduler, mock_store: MagicMock):
+# @patch("ops_core.scheduler.engine.execute_agent_task_actor.send") # PHASE 1 REBUILD: Commented out
+async def test_submit_task(scheduler: InMemoryScheduler, mock_store: MagicMock): # PHASE 1 REBUILD: Removed mock_actor_send
     """Test submitting a task successfully."""
     task_name = "My Agent Task"
     task_type = "agent_run"
@@ -89,13 +89,13 @@ async def test_submit_task(mock_actor_send: MagicMock, scheduler: InMemorySchedu
     assert returned_task.name == added_task.name
     assert returned_task.status == added_task.status
     # Verify actor send was called for agent_run type
-    mock_actor_send.assert_called_once()
+    # mock_actor_send.assert_called_once() # PHASE 1 REBUILD: Commented out
 
 
 @pytest.mark.asyncio
 # Patch the actor's send method here as well if submit_task calls it unconditionally
-@patch("ops_core.scheduler.engine.execute_agent_task_actor.send")
-async def test_submit_task_store_add_failure(mock_actor_send: MagicMock, scheduler: InMemoryScheduler, mock_store: MagicMock):
+# @patch("ops_core.scheduler.engine.execute_agent_task_actor.send") # PHASE 1 REBUILD: Commented out
+async def test_submit_task_store_add_failure(scheduler: InMemoryScheduler, mock_store: MagicMock): # PHASE 1 REBUILD: Removed mock_actor_send
     """Test scenario where adding the task to the store fails."""
     task_name = "Fail Add Task"
     task_type = "any_type"
@@ -117,4 +117,4 @@ async def test_submit_task_store_add_failure(mock_actor_send: MagicMock, schedul
     # Ensure get_task was not called if add_task failed
     mock_store.get_task.assert_not_called()
     # Ensure actor was not called if add_task failed
-    mock_actor_send.assert_not_called()
+    # mock_actor_send.assert_not_called() # PHASE 1 REBUILD: Commented out

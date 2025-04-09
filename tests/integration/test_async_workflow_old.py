@@ -43,7 +43,7 @@ from ops_core.api.v1.endpoints import tasks as tasks_api
 from ops_core.grpc_internal.task_servicer import TaskServicer
 from ops_core.grpc_internal import tasks_pb2, tasks_pb2_grpc
 # No longer need to import our broker module here for StubBroker
-from ops_core.scheduler.engine import execute_agent_task_actor # Import the actor
+# from ops_core.scheduler.engine import execute_agent_task_actor # Import the actor # PHASE 1 REBUILD: Commented out
 
 
 # Queue declaration will happen within tests after setting the broker
@@ -220,19 +220,19 @@ async def test_rest_api_async_agent_workflow_success(
     mocker.patch('ops_core.dependencies.get_mcp_client', return_value=mock_mcp_client)
 
     # Declare the actor's queue on the stub broker
-    actor_instance: Actor = execute_agent_task_actor
-    stub_broker.declare_queue(actor_instance.queue_name)
+    # actor_instance: Actor = execute_agent_task_actor # PHASE 1 REBUILD: Commented out
+    # stub_broker.declare_queue(actor_instance.queue_name) # PHASE 1 REBUILD: Commented out
     # Patch the broker's get_actor method to return the correct actor instance
-    mocker.patch.object(stub_broker, 'get_actor', return_value=execute_agent_task_actor)
+    # mocker.patch.object(stub_broker, 'get_actor', return_value=execute_agent_task_actor) # PHASE 1 REBUILD: Commented out
     # Removed direct patch of actor.broker
 
-    # --- Patch submit_task to ensure stub_broker is used by actor.send ---
-    original_submit_task = test_scheduler.submit_task
-    async def patched_submit_task(*args, **kwargs):
-        # Ensure the actor uses the stub broker right before send is called
-        execute_agent_task_actor.broker = stub_broker
-        return await original_submit_task(*args, **kwargs)
-    mocker.patch.object(test_scheduler, 'submit_task', side_effect=patched_submit_task)
+    # --- Patch submit_task to ensure stub_broker is used by actor.send --- # PHASE 1 REBUILD: Removed incorrect patch
+    # original_submit_task = test_scheduler.submit_task
+    # async def patched_submit_task(*args, **kwargs):
+    #     # Ensure the actor uses the stub broker right before send is called
+    #     execute_agent_task_actor.broker = stub_broker
+    #     return await original_submit_task(*args, **kwargs)
+    # mocker.patch.object(test_scheduler, 'submit_task', side_effect=patched_submit_task)
     # --------------------------------------------------------------------
 
     # Mock the Agent's run method directly where it's called inside _run_agent_task_logic
@@ -247,7 +247,7 @@ async def test_rest_api_async_agent_workflow_success(
 
     task_data = {"task_type": "agent_run", "input_data": {"goal": "async rest goal"}}
     task_id = None
-    actor_instance: Actor = execute_agent_task_actor # Get actor instance for queue name
+    # actor_instance: Actor = execute_agent_task_actor # Get actor instance for queue name # PHASE 1 REBUILD: Commented out
 
     # --- Act ---
     # 1. Submit task via REST API
@@ -267,8 +267,9 @@ async def test_rest_api_async_agent_workflow_success(
     # --- Assert ---
     # 3. Process the message using the stub broker and worker
     # Use fail_fast=True to see exceptions from the actor immediately
-    stub_broker.join(actor_instance.queue_name, fail_fast=True)
+    # stub_broker.join(actor_instance.queue_name, fail_fast=True) # PHASE 1 REBUILD: Commented out
     # stub_worker.join() # Removed: stub_broker.join should handle waiting for processing
+    pytest.skip("PHASE 1 REBUILD: Skipping actor execution test in old file.") # Skip rest of test
 
     # 4. Verify Agent.run was called by the actor logic
     mock_agent_run.assert_awaited_once_with(goal=task_data["input_data"]["goal"])
@@ -316,12 +317,12 @@ async def test_grpc_api_async_agent_workflow_success(
     mocker.patch('ops_core.dependencies.get_mcp_client', return_value=mock_mcp_client)
 
     # Declare the actor's queue on the stub broker
-    actor_instance: Actor = execute_agent_task_actor
-    stub_broker.declare_queue(actor_instance.queue_name)
+    # actor_instance: Actor = execute_agent_task_actor # PHASE 1 REBUILD: Commented out
+    # stub_broker.declare_queue(actor_instance.queue_name) # PHASE 1 REBUILD: Commented out
     # Patch the broker's get_actor method to return the correct actor instance
-    mocker.patch.object(stub_broker, 'get_actor', return_value=execute_agent_task_actor)
+    # mocker.patch.object(stub_broker, 'get_actor', return_value=execute_agent_task_actor) # PHASE 1 REBUILD: Commented out
     # Directly patch the actor's broker attribute to use the stub_broker
-    mocker.patch.object(execute_agent_task_actor, 'broker', stub_broker)
+    # mocker.patch.object(execute_agent_task_actor, 'broker', stub_broker) # PHASE 1 REBUILD: Commented out
 
     # Mock the Agent's run method directly
     mock_agent_run = mocker.patch('ops_core.scheduler.engine.Agent.run', new_callable=AsyncMock, return_value=agent_final_result)
@@ -355,9 +356,10 @@ async def test_grpc_api_async_agent_workflow_success(
 
     # --- Assert ---
     # 3. Process the message using the stub broker and worker
-    actor_instance: Actor = execute_agent_task_actor
-    stub_broker.join(actor_instance.queue_name, fail_fast=True)
+    # actor_instance: Actor = execute_agent_task_actor # PHASE 1 REBUILD: Commented out
+    # stub_broker.join(actor_instance.queue_name, fail_fast=True) # PHASE 1 REBUILD: Commented out
     # stub_worker.join() # Removed: stub_broker.join should handle waiting for processing
+    pytest.skip("PHASE 1 REBUILD: Skipping actor execution test in old file.") # Skip rest of test
 
     # 4. Verify Agent.run was called
     mock_agent_run.assert_awaited_once_with(goal=input_dict["goal"])
@@ -406,19 +408,19 @@ async def test_rest_api_async_agent_workflow_failure(
     mocker.patch('ops_core.dependencies.get_mcp_client', return_value=mock_mcp_client)
 
     # Declare the actor's queue on the stub broker
-    actor_instance: Actor = execute_agent_task_actor
-    stub_broker.declare_queue(actor_instance.queue_name)
+    # actor_instance: Actor = execute_agent_task_actor # PHASE 1 REBUILD: Commented out
+    # stub_broker.declare_queue(actor_instance.queue_name) # PHASE 1 REBUILD: Commented out
     # Patch the broker's get_actor method to return the correct actor instance
-    mocker.patch.object(stub_broker, 'get_actor', return_value=execute_agent_task_actor)
+    # mocker.patch.object(stub_broker, 'get_actor', return_value=execute_agent_task_actor) # PHASE 1 REBUILD: Commented out
     # Removed direct patch of actor.broker
 
-    # --- Patch submit_task to ensure stub_broker is used by actor.send ---
-    original_submit_task = test_scheduler.submit_task
-    async def patched_submit_task(*args, **kwargs):
-        # Ensure the actor uses the stub broker right before send is called
-        execute_agent_task_actor.broker = stub_broker
-        return await original_submit_task(*args, **kwargs)
-    mocker.patch.object(test_scheduler, 'submit_task', side_effect=patched_submit_task)
+    # --- Patch submit_task to ensure stub_broker is used by actor.send --- # PHASE 1 REBUILD: Removed incorrect patch
+    # original_submit_task = test_scheduler.submit_task
+    # async def patched_submit_task(*args, **kwargs):
+    #     # Ensure the actor uses the stub broker right before send is called
+    #     execute_agent_task_actor.broker = stub_broker
+    #     return await original_submit_task(*args, **kwargs)
+    # mocker.patch.object(test_scheduler, 'submit_task', side_effect=patched_submit_task)
     # --------------------------------------------------------------------
 
     # Mock Agent.run to raise an exception
@@ -447,14 +449,15 @@ async def test_rest_api_async_agent_workflow_failure(
 
     # --- Assert ---
     # 3. Process the message using the stub broker and worker
-    actor_instance: Actor = execute_agent_task_actor
+    # actor_instance: Actor = execute_agent_task_actor # PHASE 1 REBUILD: Commented out
     # Use fail_fast=True to catch the agent exception if it propagates
     # Note: Dramatiq might retry internally first, so fail_fast might not catch it immediately
     # unless retries are disabled or exhausted for the actor.
     # For simplicity here, we assume default retries might happen,
     # but the final state should be FAILED.
-    stub_broker.join(actor_instance.queue_name, fail_fast=False) # Don't fail test immediately
-    stub_worker.join()
+    # stub_broker.join(actor_instance.queue_name, fail_fast=False) # Don't fail test immediately # PHASE 1 REBUILD: Commented out
+    # stub_worker.join() # PHASE 1 REBUILD: Commented out
+    pytest.skip("PHASE 1 REBUILD: Skipping actor execution test in old file.") # Skip rest of test
 
     # 4. Verify Agent.run was called
     mock_agent_run.assert_awaited_once_with(goal=task_data["input_data"]["goal"])

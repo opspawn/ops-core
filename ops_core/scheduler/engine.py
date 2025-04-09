@@ -129,7 +129,8 @@ class InMemoryScheduler:
             goal = input_data.get("goal", "No goal specified") # Extract goal
             logger.info(f"Dispatching agent task {task_id} to broker with goal: '{goal}'")
             # Send message to the actor
-            execute_agent_task_actor.send(task_id=task_id, goal=goal, input_data=input_data)
+            # execute_agent_task_actor.send(task_id=task_id, goal=goal, input_data=input_data) # PHASE 1 REBUILD: Commented out
+            logger.warning(f"PHASE 1 REBUILD: execute_agent_task_actor.send() commented out for task {task_id}")
         else:
             # Handle other task types if necessary (e.g., simple execution, workflows)
             # For now, non-agent tasks remain PENDING unless a worker processes them
@@ -142,131 +143,131 @@ class InMemoryScheduler:
     # Removed start/stop methods as they are not needed with Dramatiq
 
 
-# --- Agent Task Execution Logic ---
+# --- Agent Task Execution Logic --- (PHASE 1 REBUILD: Commented out)
+#
+# async def _run_agent_task_logic(task_id: str, goal: str, input_data: Dict[str, Any]):
+#     """Helper function containing the core logic for running an agent task."""
+#     logger.info(f"Starting agent task logic for task_id: {task_id}, goal: {goal}")
+#     metadata_store = get_metadata_store() # Get store instance via dependency function
+#     mcp_client = get_mcp_client() # Get MCP client instance
+#
+#     try:
+#         await metadata_store.update_task_status(task_id, TaskStatus.RUNNING)
+#
+#         # --- Agent Setup ---
+#         memory_instance = ShortTermMemory()
+#         tool_registry_instance = ToolRegistry()
+#         security_manager_instance = DefaultSecurityManager()
+#
+#         # Instantiate LLM Client and Planner based on config
+#         try:
+#             llm_client_instance = get_llm_client()
+#             planner_instance = get_planner(llm_client=llm_client_instance)
+#         except Exception as config_err:
+#              logger.exception(f"Failed to configure LLM/Planner for task {task_id}: {config_err}")
+#              await metadata_store.update_task_output(
+#                  task_id=task_id,
+#                  result={"error": "Agent configuration failed."},
+#                  error_message=f"LLM/Planner setup error: {config_err}"
+#              )
+#              await metadata_store.update_task_status(task_id, TaskStatus.FAILED)
+#              return # Stop execution if config fails
+#
+#         # Inject MCP Proxy Tool if MCP client is available and running
+#         if mcp_client and mcp_client._is_running: # Check internal running flag
+#              try:
+#                  # MCPProxyTool defines spec as a class attribute, don't pass it to init
+#                  proxy_tool = MCPProxyTool(mcp_client=mcp_client)
+#                  tool_registry_instance.add_tool(proxy_tool) # Correct method name is add_tool
+#                  logger.info(f"MCP Proxy Tool injected for task {task_id}")
+#              except ImportError:
+#                  logger.warning("MCP Proxy Tool spec not found in agentkit. Skipping injection.")
+#              except Exception as proxy_err:
+#                  logger.exception(f"Failed to register MCP Proxy tool for task {task_id}: {proxy_err}")
+#                  # Decide if this is fatal - maybe just log and continue without proxy?
+#
+#         agent = Agent(
+#             memory=memory_instance,
+#             planner=planner_instance, # Use configured planner
+#             tool_manager=tool_registry_instance,
+#             security_manager=security_manager_instance,
+#         )
+#         # --- Agent Execution (Simplified for Debugging Maint.8) ---
+#         logger.warning(f"DEBUG: Skipping agent.run and memory.get_context for task {task_id}")
+#         await asyncio.sleep(0.01) # Maintain minimal async behavior
+#         # agent_result = await agent.run(goal=goal)
+#         agent_result = {"status": "Success", "output": "DEBUG: Skipped agent execution"} # Mock result
+#         logger.info(f"Agent task {task_id} completed (DEBUG MODE). Result: {agent_result}")
+#
+#         # --- Update Metadata Store ---
+#         final_status = TaskStatus.COMPLETED # Assume success in debug mode
+#         # memory_content = await agent.memory.get_context()
+#         memory_content = ["DEBUG: Skipped memory retrieval"] # Mock memory
+#         task_result_data = {
+#             "agent_outcome": agent_result,
+#             "memory_history": memory_content, # Include memory
+#         }
+#         error_message = None # Assume no error in debug mode
+#
+#         await metadata_store.update_task_output(
+#             task_id=task_id,
+#             result=task_result_data,
+#             error_message=error_message
+#         )
+#         # Explicitly update status after output, as update_task_output might not set final status
+#         await metadata_store.update_task_status(task_id, final_status)
+#         logger.info(f"Updated metadata for task {task_id} with status {final_status}")
+#
+#     except TaskNotFoundError:
+#         logger.error(f"Task {task_id} not found during agent execution.")
+#         # Cannot update task if not found
+#     except Exception as e:
+#         logger.exception(f"Agent task {task_id} failed with unexpected error: {e}")
+#         try:
+#             # Attempt to mark the task as failed in the store
+#             await metadata_store.update_task_output(
+#                 task_id=task_id,
+#                 result={"error": "Agent execution failed unexpectedly."},
+#                 error_message=str(e)
+#             )
+#             await metadata_store.update_task_status(task_id, TaskStatus.FAILED)
+#         except TaskNotFoundError:
+#              logger.error(f"Task {task_id} not found when trying to report agent failure.")
+#         except Exception as store_e:
+#             logger.exception(f"Failed to update metadata store for failed task {task_id}: {store_e}")
 
-async def _run_agent_task_logic(task_id: str, goal: str, input_data: Dict[str, Any]):
-    """Helper function containing the core logic for running an agent task."""
-    logger.info(f"Starting agent task logic for task_id: {task_id}, goal: {goal}")
-    metadata_store = get_metadata_store() # Get store instance via dependency function
-    mcp_client = get_mcp_client() # Get MCP client instance
-
-    try:
-        await metadata_store.update_task_status(task_id, TaskStatus.RUNNING)
-
-        # --- Agent Setup ---
-        memory_instance = ShortTermMemory()
-        tool_registry_instance = ToolRegistry()
-        security_manager_instance = DefaultSecurityManager()
-
-        # Instantiate LLM Client and Planner based on config
-        try:
-            llm_client_instance = get_llm_client()
-            planner_instance = get_planner(llm_client=llm_client_instance)
-        except Exception as config_err:
-             logger.exception(f"Failed to configure LLM/Planner for task {task_id}: {config_err}")
-             await metadata_store.update_task_output(
-                 task_id=task_id,
-                 result={"error": "Agent configuration failed."},
-                 error_message=f"LLM/Planner setup error: {config_err}"
-             )
-             await metadata_store.update_task_status(task_id, TaskStatus.FAILED)
-             return # Stop execution if config fails
-
-        # Inject MCP Proxy Tool if MCP client is available and running
-        if mcp_client and mcp_client._is_running: # Check internal running flag
-             try:
-                 # MCPProxyTool defines spec as a class attribute, don't pass it to init
-                 proxy_tool = MCPProxyTool(mcp_client=mcp_client)
-                 tool_registry_instance.add_tool(proxy_tool) # Correct method name is add_tool
-                 logger.info(f"MCP Proxy Tool injected for task {task_id}")
-             except ImportError:
-                 logger.warning("MCP Proxy Tool spec not found in agentkit. Skipping injection.")
-             except Exception as proxy_err:
-                 logger.exception(f"Failed to register MCP Proxy tool for task {task_id}: {proxy_err}")
-                 # Decide if this is fatal - maybe just log and continue without proxy?
-
-        agent = Agent(
-            memory=memory_instance,
-            planner=planner_instance, # Use configured planner
-            tool_manager=tool_registry_instance,
-            security_manager=security_manager_instance,
-        )
-        # --- Agent Execution (Simplified for Debugging Maint.8) ---
-        logger.warning(f"DEBUG: Skipping agent.run and memory.get_context for task {task_id}")
-        await asyncio.sleep(0.01) # Maintain minimal async behavior
-        # agent_result = await agent.run(goal=goal)
-        agent_result = {"status": "Success", "output": "DEBUG: Skipped agent execution"} # Mock result
-        logger.info(f"Agent task {task_id} completed (DEBUG MODE). Result: {agent_result}")
-
-        # --- Update Metadata Store ---
-        final_status = TaskStatus.COMPLETED # Assume success in debug mode
-        # memory_content = await agent.memory.get_context()
-        memory_content = ["DEBUG: Skipped memory retrieval"] # Mock memory
-        task_result_data = {
-            "agent_outcome": agent_result,
-            "memory_history": memory_content, # Include memory
-        }
-        error_message = None # Assume no error in debug mode
-
-        await metadata_store.update_task_output(
-            task_id=task_id,
-            result=task_result_data,
-            error_message=error_message
-        )
-        # Explicitly update status after output, as update_task_output might not set final status
-        await metadata_store.update_task_status(task_id, final_status)
-        logger.info(f"Updated metadata for task {task_id} with status {final_status}")
-
-    except TaskNotFoundError:
-        logger.error(f"Task {task_id} not found during agent execution.")
-        # Cannot update task if not found
-    except Exception as e:
-        logger.exception(f"Agent task {task_id} failed with unexpected error: {e}")
-        try:
-            # Attempt to mark the task as failed in the store
-            await metadata_store.update_task_output(
-                task_id=task_id,
-                result={"error": "Agent execution failed unexpectedly."},
-                error_message=str(e)
-            )
-            await metadata_store.update_task_status(task_id, TaskStatus.FAILED)
-        except TaskNotFoundError:
-             logger.error(f"Task {task_id} not found when trying to report agent failure.")
-        except Exception as store_e:
-            logger.exception(f"Failed to update metadata store for failed task {task_id}: {store_e}")
-
-# --- Dramatiq Actor Definition ---
-
-@dramatiq.actor() # Use global decorator, removed store_results option
-async def execute_agent_task_actor(task_id: str, goal: str, input_data: Dict[str, Any]):
-    """
-    Dramatiq actor that executes the agent task logic asynchronously.
-    """
-    # Load testing hook
-    mock_delay_ms_str = os.getenv("OPS_CORE_LOAD_TEST_MOCK_AGENT_DELAY_MS")
-    if mock_delay_ms_str:
-        try:
-            delay_ms = int(mock_delay_ms_str)
-            logger.warning(f"LOAD TEST MODE: Mocking agent execution with {delay_ms}ms delay for task {task_id}.")
-            await asyncio.sleep(delay_ms / 1000.0)
-            # Simulate success for load testing
-            metadata_store = get_metadata_store()
-            await metadata_store.update_task_output(task_id=task_id, result={"mock_result": "load_test_success"})
-            await metadata_store.update_task_status(task_id, TaskStatus.COMPLETED)
-            logger.info(f"LOAD TEST MODE: Mock agent task {task_id} completed.")
-            return # Skip real execution
-        except ValueError:
-            logger.error(f"Invalid OPS_CORE_LOAD_TEST_MOCK_AGENT_DELAY_MS value: {mock_delay_ms_str}. Proceeding with real execution.")
-        except Exception as mock_err:
-             logger.exception(f"Error during mock agent execution for task {task_id}: {mock_err}")
-             # Attempt to mark as failed even in mock mode
-             try:
-                 metadata_store = get_metadata_store()
-                 await metadata_store.update_task_output(task_id=task_id, error_message=f"Mock execution error: {mock_err}")
-                 await metadata_store.update_task_status(task_id, TaskStatus.FAILED)
-             except Exception:
-                 logger.exception(f"Failed to update store after mock execution error for task {task_id}")
-             return # Stop execution
-
-    # Call the actual logic
-    await _run_agent_task_logic(task_id=task_id, goal=goal, input_data=input_data)
+# --- Dramatiq Actor Definition --- (PHASE 1 REBUILD: Commented out)
+#
+# @dramatiq.actor() # Use global decorator, removed store_results option
+# async def execute_agent_task_actor(task_id: str, goal: str, input_data: Dict[str, Any]):
+#     """
+#     Dramatiq actor that executes the agent task logic asynchronously.
+#     """
+#     # Load testing hook
+#     mock_delay_ms_str = os.getenv("OPS_CORE_LOAD_TEST_MOCK_AGENT_DELAY_MS")
+#     if mock_delay_ms_str:
+#         try:
+#             delay_ms = int(mock_delay_ms_str)
+#             logger.warning(f"LOAD TEST MODE: Mocking agent execution with {delay_ms}ms delay for task {task_id}.")
+#             await asyncio.sleep(delay_ms / 1000.0)
+#             # Simulate success for load testing
+#             metadata_store = get_metadata_store()
+#             await metadata_store.update_task_output(task_id=task_id, result={"mock_result": "load_test_success"})
+#             await metadata_store.update_task_status(task_id, TaskStatus.COMPLETED)
+#             logger.info(f"LOAD TEST MODE: Mock agent task {task_id} completed.")
+#             return # Skip real execution
+#         except ValueError:
+#             logger.error(f"Invalid OPS_CORE_LOAD_TEST_MOCK_AGENT_DELAY_MS value: {mock_delay_ms_str}. Proceeding with real execution.")
+#         except Exception as mock_err:
+#              logger.exception(f"Error during mock agent execution for task {task_id}: {mock_err}")
+#              # Attempt to mark as failed even in mock mode
+#              try:
+#                  metadata_store = get_metadata_store()
+#                  await metadata_store.update_task_output(task_id=task_id, error_message=f"Mock execution error: {mock_err}")
+#                  await metadata_store.update_task_status(task_id, TaskStatus.FAILED)
+#              except Exception:
+#                  logger.exception(f"Failed to update store after mock execution error for task {task_id}")
+#              return # Stop execution
+#
+#     # Call the actual logic
+#     # await _run_agent_task_logic(task_id=task_id, goal=goal, input_data=input_data) # Also commented out
