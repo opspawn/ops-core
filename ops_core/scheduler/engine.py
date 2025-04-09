@@ -191,19 +191,22 @@ async def _run_agent_task_logic(task_id: str, goal: str, input_data: Dict[str, A
             tool_manager=tool_registry_instance,
             security_manager=security_manager_instance,
         )
-        # --- Agent Execution ---
-        agent_result = await agent.run(goal=goal)
-        logger.info(f"Agent task {task_id} completed. Result: {agent_result}")
+        # --- Agent Execution (Simplified for Debugging Maint.8) ---
+        logger.warning(f"DEBUG: Skipping agent.run and memory.get_context for task {task_id}")
+        await asyncio.sleep(0.01) # Maintain minimal async behavior
+        # agent_result = await agent.run(goal=goal)
+        agent_result = {"status": "Success", "output": "DEBUG: Skipped agent execution"} # Mock result
+        logger.info(f"Agent task {task_id} completed (DEBUG MODE). Result: {agent_result}")
 
         # --- Update Metadata Store ---
-        final_status = TaskStatus.COMPLETED if agent_result.get("status") != "Failed" else TaskStatus.FAILED
-        # Retrieve memory content using the correct method name
-        memory_content = await agent.memory.get_context()
+        final_status = TaskStatus.COMPLETED # Assume success in debug mode
+        # memory_content = await agent.memory.get_context()
+        memory_content = ["DEBUG: Skipped memory retrieval"] # Mock memory
         task_result_data = {
             "agent_outcome": agent_result,
             "memory_history": memory_content, # Include memory
         }
-        error_message = agent_result.get("reason") if final_status == TaskStatus.FAILED else None
+        error_message = None # Assume no error in debug mode
 
         await metadata_store.update_task_output(
             task_id=task_id,

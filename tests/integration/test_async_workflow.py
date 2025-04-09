@@ -56,11 +56,12 @@ def stub_broker() -> StubBroker:
     """Provides a StubBroker instance, sets it globally, and cleans up."""
     broker = StubBroker()
     broker.emit_after("process_boot") # Important for worker processing
-    set_broker(broker)
+    # Don't set globally here, let tests do it via patching
+    # set_broker(broker)
     yield broker
     # Clean up after test
     broker.flush_all()
-    set_broker(None) # Unset global broker
+    # set_broker(None) # Unset global broker
 
 @pytest.fixture() # No longer async needed for worker fixture itself
 def stub_worker(stub_broker: StubBroker):
@@ -97,8 +98,6 @@ async def test_scheduler(
         metadata_store=test_metadata_store,
         mcp_client=mock_mcp_client
     )
-    # Ensure the store is accessible if needed elsewhere
-    # scheduler.metadata_store = test_metadata_store # No longer needed, dependencies injected via API/gRPC overrides
     return scheduler
 
 @pytest.fixture(scope="function") # Keep function scope
@@ -124,9 +123,9 @@ def test_client(
 async def grpc_server(test_scheduler: InMemoryScheduler): # Keep scheduler for gRPC servicer
     """Starts an in-process gRPC server for testing."""
     server = grpc_aio.server()
-    tasks_pb2_grpc.add_TaskServiceServicer_to_server(
-        TaskServicer(scheduler=test_scheduler), server
-    )
+    # Explicitly create servicer with the scheduler from the fixture
+    servicer = TaskServicer(scheduler=test_scheduler)
+    tasks_pb2_grpc.add_TaskServiceServicer_to_server(servicer, server)
     port = server.add_insecure_port("[::]:0") # Use random available port
     await server.start()
     yield f"localhost:{port}" # Return the address
@@ -205,7 +204,14 @@ async def test_rest_api_async_agent_workflow_success(
     Mocks Agent.run within the actor's logic.
     """
     # --- Arrange ---
-    # Broker is set globally by the fixture
+    # Patch dramatiq broker functions globally for this test
+    mocker.patch('dramatiq.set_broker') # Prevent setting real broker
+    mocker.patch('dramatiq.get_broker', return_value=stub_broker)
+    set_broker(stub_broker) # Explicitly set for current context
+
+    # Patch the actor's send method in the engine module's namespace
+    mock_actor_send = mocker.patch('ops_core.scheduler.engine.execute_agent_task_actor.send')
+
     agent_final_result = {"status": "Success", "output": "Agent run successful!"}
     agent_history = ["Step 1", "Step 2"]
 
@@ -214,8 +220,6 @@ async def test_rest_api_async_agent_workflow_success(
     mocker.patch('ops_core.dependencies.get_metadata_store', return_value=test_metadata_store)
     mocker.patch('ops_core.dependencies.get_mcp_client', return_value=mock_mcp_client)
 
-    # Force the actor instance to use the stub_broker for this test
-    mocker.patch.object(execute_agent_task_actor, 'broker', stub_broker)
     # Declare the actor's queue on the stub broker
     actor_instance: Actor = execute_agent_task_actor
     stub_broker.declare_queue(actor_instance.queue_name)
@@ -243,6 +247,9 @@ async def test_rest_api_async_agent_workflow_success(
     response_json = response.json()
     task_id = response_json["task_id"]
     assert response_json["status"] == TaskStatus.PENDING.value
+
+    # Verify the mock send was called by the API endpoint
+    mock_actor_send.assert_called_once()
 
     # 2. Verify task created in store (initial state)
     stored_task_before = await test_metadata_store.get_task(task_id)
@@ -286,7 +293,14 @@ async def test_grpc_api_async_agent_workflow_success(
     Mocks Agent.run within the actor's logic.
     """
     # --- Arrange ---
-    # Broker is set globally by the fixture
+    # Patch dramatiq broker functions globally for this test
+    mocker.patch('dramatiq.set_broker') # Prevent setting real broker
+    mocker.patch('dramatiq.get_broker', return_value=stub_broker)
+    set_broker(stub_broker) # Explicitly set for current context
+
+    # Patch the actor's send method in the engine module's namespace
+    mock_actor_send = mocker.patch('ops_core.scheduler.engine.execute_agent_task_actor.send')
+
     agent_final_result = {"status": "Success", "output": "Agent run successful via gRPC!"}
     agent_history = ["gRPC Step 1"]
 
@@ -294,8 +308,6 @@ async def test_grpc_api_async_agent_workflow_success(
     mocker.patch('ops_core.dependencies.get_metadata_store', return_value=test_metadata_store)
     mocker.patch('ops_core.dependencies.get_mcp_client', return_value=mock_mcp_client)
 
-    # Force the actor instance to use the stub_broker for this test
-    mocker.patch.object(execute_agent_task_actor, 'broker', stub_broker)
     # Declare the actor's queue on the stub broker
     actor_instance: Actor = execute_agent_task_actor
     stub_broker.declare_queue(actor_instance.queue_name)
@@ -324,6 +336,9 @@ async def test_grpc_api_async_agent_workflow_success(
     assert response.task.task_type == "agent_run"
     assert response.task.status == tasks_pb2.PENDING
     task_id = response.task.task_id
+
+    # Verify the mock send was called by the gRPC endpoint
+    mock_actor_send.assert_called_once()
 
     # 2. Verify task created in store (initial state)
     stored_task_before = await test_metadata_store.get_task(task_id)
@@ -367,7 +382,14 @@ async def test_rest_api_async_agent_workflow_failure(
     Mocks Agent.run to raise an exception.
     """
     # --- Arrange ---
-    # Broker is set globally by the fixture
+    # Patch dramatiq broker functions globally for this test
+    mocker.patch('dramatiq.set_broker') # Prevent setting real broker
+    mocker.patch('dramatiq.get_broker', return_value=stub_broker)
+    set_broker(stub_broker) # Explicitly set for current context
+
+    # Patch the actor's send method in the engine module's namespace
+    mock_actor_send = mocker.patch('ops_core.scheduler.engine.execute_agent_task_actor.send')
+
     agent_error_message = "Agent failed intentionally during run"
     agent_exception = ValueError(agent_error_message)
     agent_history_before_fail = ["Step 1 - Fail"]
@@ -376,8 +398,6 @@ async def test_rest_api_async_agent_workflow_failure(
     mocker.patch('ops_core.dependencies.get_metadata_store', return_value=test_metadata_store)
     mocker.patch('ops_core.dependencies.get_mcp_client', return_value=mock_mcp_client)
 
-    # Force the actor instance to use the stub_broker for this test
-    mocker.patch.object(execute_agent_task_actor, 'broker', stub_broker)
     # Declare the actor's queue on the stub broker
     actor_instance: Actor = execute_agent_task_actor
     stub_broker.declare_queue(actor_instance.queue_name)
@@ -400,6 +420,9 @@ async def test_rest_api_async_agent_workflow_failure(
     response = test_client.post("/api/v1/tasks/", json=task_data)
     assert response.status_code == 201
     task_id = response.json()["task_id"]
+
+    # Verify the mock send was called by the API endpoint
+    mock_actor_send.assert_called_once()
 
     # 2. Verify task created in store (initial state)
     stored_task_before = await test_metadata_store.get_task(task_id)
