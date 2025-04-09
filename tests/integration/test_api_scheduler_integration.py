@@ -46,7 +46,7 @@ async def mock_scheduler( # Renaming to real_scheduler_mock_client might be clea
 ) -> InMemoryScheduler:
     """Provides an InMemoryScheduler with a real SqlMetadataStore and mocked MCP client."""
     # Create real store instance
-    sql_store = SqlMetadataStore(db_session)
+    sql_store = SqlMetadataStore() # No session needed in constructor
     scheduler = InMemoryScheduler(
         metadata_store=sql_store, # Use real store
         mcp_client=mock_mcp_client
@@ -85,7 +85,7 @@ async def grpc_server(
 ):
     """Starts an in-process gRPC server for testing with real store."""
     # Create real store instance
-    sql_store = SqlMetadataStore(db_session)
+    sql_store = SqlMetadataStore() # No session needed in constructor
     server = grpc_aio.server()
     tasks_pb2_grpc.add_TaskServiceServicer_to_server(
         # Inject mock scheduler and real store into servicer

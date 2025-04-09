@@ -29,9 +29,9 @@ dependencies = [
 ]
 
 [tool.setuptools.packages.find]
-# Look for packages inside the nested 'ops_core' directory
-where = ["ops_core"]
-# Setuptools should find the 'ops_core' package within the 'ops_core/' directory specified by 'where'
+# Look for packages inside the 'src' directory relative to the project root
+where = ["../src"]
+# Setuptools should find the 'ops_core' package within the 'src/' directory specified by 'where'
 exclude = ["tests*"] # Exclude the tests directory relative to the root
 
 [tool.pytest.ini_options]

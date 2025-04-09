@@ -3,11 +3,16 @@
 
 set -e # Exit immediately if a command exits with a non-zero status.
 
-# Determine the absolute path to the script's directory
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" > /dev/null && pwd )"
-# Define target file relative to the script's parent directory (ops_core)
-# NOTE: The target file is now in the renamed grpc_internal directory
-GRPC_FILE="${SCRIPT_DIR}/../ops_core/grpc_internal/tasks_pb2_grpc.py"
+# Get the target directory from the first argument passed by tox
+TARGET_DIR="$1"
+
+if [ -z "$TARGET_DIR" ]; then
+  echo "Error: Target directory argument not provided."
+  exit 1
+fi
+
+# Define target file path based on the argument
+GRPC_FILE="${TARGET_DIR}/tasks_pb2_grpc.py"
 
 # Ensure the target file exists
 if [ ! -f "$GRPC_FILE" ]; then

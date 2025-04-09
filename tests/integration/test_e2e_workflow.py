@@ -52,7 +52,7 @@ def test_app_components(
     Yields the client, scheduler, mcp_client, and the mock actor send patch.
     """
     # Create real store instance using the test session
-    sql_store = SqlMetadataStore(db_session)
+    sql_store = SqlMetadataStore() # No session needed in constructor
     # Create scheduler instance with the real store and mock client
     test_scheduler = InMemoryScheduler(metadata_store=sql_store, mcp_client=mock_mcp_client)
 

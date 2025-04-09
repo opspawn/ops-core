@@ -144,7 +144,7 @@ async def test_run_agent_task_logic_success(mocker, db_session: AsyncSession):
     memory_content = ["memory context"]
 
     # Create a real store instance for the test
-    sql_store = SqlMetadataStore(db_session)
+    sql_store = SqlMetadataStore() # No session needed in constructor
 
     # Create a task in the DB first
     initial_task = Task(name=task_name, task_type="agent_run", input_data=input_data, status=TaskStatus.PENDING)
@@ -204,7 +204,7 @@ async def test_run_agent_task_logic_agent_failure(mocker, db_session: AsyncSessi
     agent_error_message = "Agent run failed!"
 
     # Create a real store instance
-    sql_store = SqlMetadataStore(db_session)
+    sql_store = SqlMetadataStore() # No session needed in constructor
 
     # Create a task in the DB first
     initial_task = Task(name=task_name, task_type="agent_run", input_data=input_data, status=TaskStatus.PENDING)
@@ -252,7 +252,7 @@ async def test_run_agent_task_logic_task_not_found(mocker, db_session: AsyncSess
     input_data = {}
 
     # Create a real store instance
-    sql_store = SqlMetadataStore(db_session)
+    sql_store = SqlMetadataStore() # No session needed in constructor
 
     # Mock other dependencies (agent etc. shouldn't be called)
     mock_mcp_client = mocker.patch("ops_core.scheduler.engine.get_mcp_client", return_value=AsyncMock(spec=OpsMcpClient)).return_value

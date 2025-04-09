@@ -42,7 +42,7 @@ def task_servicer(
 ) -> TaskServicer:
     """Provides an instance of TaskServicer with a mocked scheduler and real SqlMetadataStore."""
     # Create real store instance
-    sql_store = SqlMetadataStore(db_session)
+    sql_store = SqlMetadataStore() # No session needed in constructor
     # Inject mock scheduler and real store
     return TaskServicer(scheduler=mock_scheduler, metadata_store=sql_store)
 
