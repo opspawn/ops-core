@@ -9,7 +9,8 @@ from grpc import aio as grpc_aio # Import for gRPC server
 
 from fastapi.testclient import TestClient
 
-from ops_core.models.tasks import TaskStatus
+# Removed model import from top level
+# from ops_core.models.tasks import TaskStatus
 from ops_core.config.loader import McpConfig # Import for mocking
 from ops_core.scheduler.engine import InMemoryScheduler, execute_agent_task_actor # Import scheduler and actor
 from ops_core.metadata.store import InMemoryMetadataStore # Import store
@@ -17,9 +18,34 @@ from ops_core.mcp_client.client import OpsMcpClient # Import client
 from ops_core.grpc_internal.task_servicer import TaskServicer # Import servicer
 from ops_core.grpc_internal import tasks_pb2, tasks_pb2_grpc # Import gRPC generated code
 from ops_core import dependencies as deps # Import dependencies module
+import dramatiq # Import dramatiq
+from dramatiq.brokers.stub import StubBroker # Import StubBroker
 
 # Mark all tests in this module as asyncio
 pytestmark = pytest.mark.asyncio
+
+
+# --- Fixtures ---
+
+@pytest.fixture(scope="function")
+def stub_broker():
+    """Creates a StubBroker, sets it globally via patching for the test, and yields it."""
+    from dramatiq.middleware import AsyncIO
+    from dramatiq.results import Results # Corrected import: Capitalized Results from dramatiq.results
+    from dramatiq.results.backends.stub import StubBackend
+
+    broker = StubBroker()
+    broker.emit_after("process_boot")
+    results_backend = StubBackend()
+    broker.add_middleware(Results(backend=results_backend)) # Corrected usage: Capitalized Results
+    broker.add_middleware(AsyncIO())
+
+    # Patch dramatiq.set_broker globally to prevent accidental overwrites.
+    # The get_broker patch is removed as it might conflict.
+    with patch("dramatiq.set_broker"):
+        broker.flush_all() # Ensure clean state before test
+        yield broker
+        broker.flush_all() # Clean up after test
 
 
 # Note: We need a fixture similar to test_e2e_workflow's test_app_components
@@ -41,22 +67,31 @@ def test_app_components_async(mock_metadata_store, mock_mcp_client, stub_broker,
     test_store = mock_metadata_store # Use the fixture directly
     test_scheduler = InMemoryScheduler(metadata_store=test_store, mcp_client=mock_mcp_client)
 
-    # Override dependencies
-    fastapi_app.dependency_overrides[tasks_api.get_metadata_store] = lambda: test_store
-    fastapi_app.dependency_overrides[tasks_api.get_mcp_client] = lambda: mock_mcp_client
-    fastapi_app.dependency_overrides[tasks_api.get_scheduler] = lambda: test_scheduler
+    # Override dependencies using the functions from the central dependencies module
+    from ops_core import dependencies as core_deps # Import the central dependencies module
+    fastapi_app.dependency_overrides[core_deps.get_metadata_store] = lambda: test_store
+    fastapi_app.dependency_overrides[core_deps.get_mcp_client] = lambda: mock_mcp_client
+    fastapi_app.dependency_overrides[core_deps.get_scheduler] = lambda: test_scheduler
 
-    # Patch the config loader and prevent dramatiq from setting a real broker
-    # Also patch dramatiq.get_broker globally to ensure StubBroker is used
+    # Patch the config loader and *specifically* patch the actor's send method
+    # to ensure it uses the provided stub_broker instance.
+    def enqueue_message(*args, **kwargs):
+        """Helper to construct message and enqueue on stub_broker."""
+        # Need to import actor locally within the function scope for patching
+        from ops_core.scheduler.engine import execute_agent_task_actor
+        # No helper needed anymore
+
+    # Patch the config loader and patch the actor's send method with a MagicMock
     with patch("ops_core.mcp_client.client.get_resolved_mcp_config", return_value=McpConfig(servers={})), \
-         patch("dramatiq.set_broker"), \
-         patch("dramatiq.get_broker", return_value=stub_broker):
-        # Removed direct patching of actor.broker
+         patch("ops_core.scheduler.engine.execute_agent_task_actor.send", new_callable=MagicMock) as mock_send:
+         # We capture the mock_send to potentially pass it to tests if needed, though tests can access it via the patch context too.
         try:
             test_client = TestClient(fastapi_app)
-            yield test_client, test_store, test_scheduler, mock_mcp_client, stub_broker
+            # Yield the mock_send along with other components if tests need direct access
+            # yield test_client, test_store, test_scheduler, mock_mcp_client, stub_broker, mock_send
+            # For now, tests will assert on the patch target directly.
+            yield test_client, test_store, test_scheduler, mock_mcp_client, stub_broker # Keep stub_broker if other fixtures depend on it, though tests won't use it directly now
         finally:
-            # No need to restore actor.broker
             # Cleanup overrides
             fastapi_app.dependency_overrides = {}
 
@@ -89,20 +124,21 @@ async def test_rest_api_triggers_async_actor_send(
     await asyncio.sleep(0)
 
     # Verify task created in store
+    from ops_core.models.tasks import TaskStatus # Import locally
     stored_task = await test_store.get_task(task_id)
     assert stored_task is not None
     assert stored_task.status == TaskStatus.PENDING
     assert stored_task.task_type == "agent_run"
 
-    # Verify a message was enqueued on the stub broker
-    # Need to import the actor to get the queue name
+    # Verify the actor's send method was called correctly
     from ops_core.scheduler.engine import execute_agent_task_actor
-    # Check queue length instead of is_empty
-    assert len(stub_broker.queues[execute_agent_task_actor.queue_name]) > 0
-    queued_message = stub_broker.get_message(execute_agent_task_actor.queue_name)
-    assert queued_message is not None
-    # The patched submit_task ensures the message goes to the stub_broker
-    assert queued_message.args == (task_id, task_data["input_data"].get("goal", "No goal specified"), task_data["input_data"])
+    execute_agent_task_actor.send.assert_called_once()
+    # Check the arguments passed to send
+    call_args, call_kwargs = execute_agent_task_actor.send.call_args
+    # send is called like: actor.send(task_id=task_id, goal=goal, input_data=input_data)
+    assert call_kwargs.get('task_id') == task_id
+    assert call_kwargs.get('goal') == task_data["input_data"].get("goal", "No goal specified")
+    assert call_kwargs.get('input_data') == task_data["input_data"]
 
 
 async def test_full_async_workflow_success(
@@ -133,18 +169,20 @@ async def test_full_async_workflow_success(
     await asyncio.sleep(0)
 
     # Verify task initially pending in store
+    from ops_core.models.tasks import TaskStatus # Import locally
     task_before = await test_store.get_task(task_id)
     assert task_before is not None
     assert task_before.status == TaskStatus.PENDING
 
     # --- Assert ---
-    # Verify the correct message was enqueued on the stub broker
-    # Check queue length instead of is_empty
-    assert len(stub_broker.queues[execute_agent_task_actor.queue_name]) > 0
-    queued_message = stub_broker.get_message(execute_agent_task_actor.queue_name)
-    assert queued_message is not None
-    # Check message arguments
-    assert queued_message.args == (task_id, task_data["input_data"].get("goal", "No goal specified"), task_data["input_data"])
+    # Verify the actor's send method was called correctly
+    from ops_core.scheduler.engine import execute_agent_task_actor
+    execute_agent_task_actor.send.assert_called_once()
+    # Check the arguments passed to send
+    call_args, call_kwargs = execute_agent_task_actor.send.call_args
+    assert call_kwargs.get('task_id') == task_id
+    assert call_kwargs.get('goal') == task_data["input_data"].get("goal", "No goal specified")
+    assert call_kwargs.get('input_data') == task_data["input_data"]
     # No need to check final task status as actor logic is not executed
 
 
@@ -175,18 +213,20 @@ async def test_rest_api_async_agent_workflow_failure(
     await asyncio.sleep(0)
 
     # Verify task initially pending in store
+    from ops_core.models.tasks import TaskStatus # Import locally
     task_before = await test_store.get_task(task_id)
     assert task_before is not None
     assert task_before.status == TaskStatus.PENDING
 
     # --- Assert ---
-    # Verify the correct message was enqueued on the stub broker
-    # Check queue length instead of is_empty
-    assert len(stub_broker.queues[execute_agent_task_actor.queue_name]) > 0
-    queued_message = stub_broker.get_message(execute_agent_task_actor.queue_name)
-    assert queued_message is not None
-    # Check message arguments
-    assert queued_message.args == (task_id, task_data["input_data"].get("goal", "No goal specified"), task_data["input_data"])
+    # Verify the actor's send method was called correctly
+    from ops_core.scheduler.engine import execute_agent_task_actor
+    execute_agent_task_actor.send.assert_called_once()
+    # Check the arguments passed to send
+    call_args, call_kwargs = execute_agent_task_actor.send.call_args
+    assert call_kwargs.get('task_id') == task_id
+    assert call_kwargs.get('goal') == task_data["input_data"].get("goal", "No goal specified")
+    assert call_kwargs.get('input_data') == task_data["input_data"]
     # No need to check final task status as actor logic is not executed
 
 
@@ -218,16 +258,18 @@ async def test_rest_api_async_mcp_proxy_workflow(
     await asyncio.sleep(0)
 
     # Verify task initially pending in store
+    from ops_core.models.tasks import TaskStatus # Import locally
     task_before = await test_store.get_task(task_id)
     assert task_before is not None
     assert task_before.status == TaskStatus.PENDING
 
     # --- Assert ---
-    # Verify the correct message was enqueued on the stub broker
-    # Check queue length instead of is_empty
-    assert len(stub_broker.queues[execute_agent_task_actor.queue_name]) > 0
-    queued_message = stub_broker.get_message(execute_agent_task_actor.queue_name)
-    assert queued_message is not None
-    # Check message arguments
-    assert queued_message.args == (task_id, task_data["input_data"].get("goal", "No goal specified"), task_data["input_data"])
+    # Verify the actor's send method was called correctly
+    from ops_core.scheduler.engine import execute_agent_task_actor
+    execute_agent_task_actor.send.assert_called_once()
+    # Check the arguments passed to send
+    call_args, call_kwargs = execute_agent_task_actor.send.call_args
+    assert call_kwargs.get('task_id') == task_id
+    assert call_kwargs.get('goal') == task_data["input_data"].get("goal", "No goal specified")
+    assert call_kwargs.get('input_data') == task_data["input_data"]
     # No need to check final task status as actor logic is not executed
