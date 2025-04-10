@@ -15,16 +15,16 @@ from sqlalchemy.future import select
 from grpc import aio as grpc_aio
 
 # Import project components
-from src.ops_core.main import app as fastapi_app # Import the FastAPI app instance
-from src.ops_core.scheduler.engine import InMemoryScheduler
-from src.ops_core.metadata.sql_store import SqlMetadataStore # Import real store
-from src.ops_core.mcp_client.client import OpsMcpClient
-from src.ops_core.models.tasks import Task, TaskStatus # Import Task model
+from ops_core.main import app as fastapi_app # Import the FastAPI app instance
+from ops_core.scheduler.engine import InMemoryScheduler
+from ops_core.metadata.sql_store import SqlMetadataStore # Import real store
+from ops_core.mcp_client.client import OpsMcpClient
+from ops_core.models.tasks import Task, TaskStatus # Import Task model
 # Import dependency getters
-from src.ops_core.dependencies import get_scheduler, get_metadata_store, get_db_session, get_mcp_client
-from src.ops_core.grpc_internal.task_servicer import TaskServicer
-from src.ops_core.grpc_internal import tasks_pb2, tasks_pb2_grpc
-from src.ops_core.config.loader import McpConfig # Import for mocking
+from ops_core.dependencies import get_scheduler, get_metadata_store, get_db_session, get_mcp_client
+from ops_core.grpc_internal.task_servicer import TaskServicer
+from ops_core.grpc_internal import tasks_pb2, tasks_pb2_grpc
+from ops_core.config.loader import McpConfig # Import for mocking
 
 # --- Fixtures ---
 
@@ -66,9 +66,9 @@ def test_client(
     """Provides a FastAPI TestClient with overridden dependencies (real store via db_session)."""
     # Override get_db_session to provide the test session
     # Need to import the original functions to override them
-    from src.ops_core.dependencies import get_db_session as original_get_db_session
-    from src.ops_core.dependencies import get_scheduler as original_get_scheduler
-    from src.ops_core.dependencies import get_mcp_client as original_get_mcp_client
+    from ops_core.dependencies import get_db_session as original_get_db_session
+    from ops_core.dependencies import get_scheduler as original_get_scheduler
+    from ops_core.dependencies import get_mcp_client as original_get_mcp_client
 
     fastapi_app.dependency_overrides[original_get_db_session] = lambda: db_session
     # Override scheduler and mcp client
@@ -114,7 +114,7 @@ async def grpc_client(grpc_server: str):
 
 # Add missing asyncio marker
 @pytest.mark.asyncio
-@patch('src.ops_core.scheduler.engine.execute_agent_task_actor') # Patch actor for submit tests
+@patch('ops_core.scheduler.engine.execute_agent_task_actor') # Patch actor for submit tests
 async def test_rest_api_submit_non_agent_task(
     mock_actor: MagicMock, # Add mock actor arg
     test_client: TestClient, # Uses updated fixture with real store via db_session override
@@ -157,7 +157,7 @@ async def test_rest_api_submit_non_agent_task(
 
 
 @pytest.mark.asyncio
-@patch('src.ops_core.scheduler.engine.execute_agent_task_actor') # Patch actor for submit tests
+@patch('ops_core.scheduler.engine.execute_agent_task_actor') # Patch actor for submit tests
 async def test_rest_api_submit_agent_task(
     mock_actor: MagicMock, # Add mock actor arg
     test_client: TestClient, # Uses updated fixture
@@ -169,7 +169,7 @@ async def test_rest_api_submit_agent_task(
     """Verify REST API agent task submission calls scheduler which calls actor send (DB)."""
     # Patch MCP config loading locally for this test
     mocker.patch(
-        "src.ops_core.config.loader.get_resolved_mcp_config",
+        "ops_core.config.loader.get_resolved_mcp_config",
         return_value=McpConfig(servers={}),
     )
     task_data = {"task_type": "agent_run", "input_data": {"goal": "rest agent goal"}}
@@ -179,7 +179,7 @@ async def test_rest_api_submit_agent_task(
     # mock_scheduler.submit_task = AsyncMock(wraps=mock_scheduler.submit_task)
 
     # Mock Agent being available within the scheduler's context for this test
-    with patch('src.ops_core.scheduler.engine.Agent', new=MagicMock()):
+    with patch('ops_core.scheduler.engine.Agent', new=MagicMock()):
         response = test_client.post("/api/v1/tasks/", json=task_data)
 
     assert response.status_code == 201
@@ -201,7 +201,7 @@ async def test_rest_api_submit_agent_task(
 
 
 @pytest.mark.asyncio
-@patch('src.ops_core.scheduler.engine.execute_agent_task_actor') # Patch actor for submit tests
+@patch('ops_core.scheduler.engine.execute_agent_task_actor') # Patch actor for submit tests
 async def test_grpc_api_submit_non_agent_task(
     mock_actor: MagicMock, # Add mock actor arg
     grpc_client: tasks_pb2_grpc.TaskServiceStub, # Uses updated fixture
@@ -245,7 +245,7 @@ async def test_grpc_api_submit_non_agent_task(
 
 
 @pytest.mark.asyncio
-@patch('src.ops_core.scheduler.engine.execute_agent_task_actor') # Patch actor for submit tests
+@patch('ops_core.scheduler.engine.execute_agent_task_actor') # Patch actor for submit tests
 async def test_grpc_api_submit_agent_task(
     mock_actor: MagicMock, # Add mock actor arg
     grpc_client: tasks_pb2_grpc.TaskServiceStub, # Uses updated fixture
@@ -257,7 +257,7 @@ async def test_grpc_api_submit_agent_task(
     """Verify gRPC API agent task submission calls scheduler which calls actor send (DB)."""
     # Patch MCP config loading locally for this test
     mocker.patch(
-        "src.ops_core.config.loader.get_resolved_mcp_config",
+        "ops_core.config.loader.get_resolved_mcp_config",
         return_value=McpConfig(servers={}),
     )
     input_dict = {"goal": "grpc agent goal"}
@@ -268,7 +268,7 @@ async def test_grpc_api_submit_agent_task(
     )
 
     # Mock Agent being available within the scheduler's context for this test
-    with patch('src.ops_core.scheduler.engine.Agent', new=MagicMock()):
+    with patch('ops_core.scheduler.engine.Agent', new=MagicMock()):
         response = await grpc_client.CreateTask(request)
 
     assert response.task.task_type == "agent_run"

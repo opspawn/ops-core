@@ -13,7 +13,7 @@ from ops_core.api.v1.schemas.tasks import (
     TaskListResponse,
     # TaskBase, # This class is not defined/exported in the schema file
 )
-from src.ops_core.models.tasks import TaskStatus # Import enum for validation
+from ops_core.models.tasks import TaskStatus # Import enum for validation
 
 
 # --- Tests for TaskCreateRequest ---

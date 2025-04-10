@@ -19,14 +19,14 @@ from agentkit.memory.short_term import ShortTermMemory
 from agentkit.planning.simple_planner import SimplePlanner
 from agentkit.planning.react_planner import ReActPlanner # Import ReActPlanner
 from agentkit.tools.registry import ToolRegistry
-from src.ops_core.models.tasks import Task, TaskStatus # Corrected import path
-from src.ops_core.dependencies import get_mcp_client, get_metadata_store, get_db_session, get_scheduler # Corrected import path and added missing imports
-from src.ops_core.main import app # Corrected import path
-# from src.ops_core.scheduler.engine import _run_agent_task_logic, execute_agent_task_actor # Import actor # PHASE 1 REBUILD: Commented out
+from ops_core.models.tasks import Task, TaskStatus # Corrected import path
+from ops_core.dependencies import get_mcp_client, get_metadata_store, get_db_session, get_scheduler # Corrected import path and added missing imports
+from ops_core.main import app # Corrected import path
+# from ops_core.scheduler.engine import _run_agent_task_logic, execute_agent_task_actor # Import actor # PHASE 1 REBUILD: Commented out
 # Removed unused import of rabbitmq_broker as it's conditional now
-from src.ops_core.config.loader import McpConfig # Import for mocking config
-from src.ops_core.scheduler.engine import InMemoryScheduler # Import scheduler
-from src.ops_core.api.v1.endpoints import tasks as tasks_api # Import API module for dependency path
+from ops_core.config.loader import McpConfig # Import for mocking config
+from ops_core.scheduler.engine import InMemoryScheduler # Import scheduler
+from ops_core.api.v1.endpoints import tasks as tasks_api # Import API module for dependency path
 
 # Mark all tests in this module as asyncio
 pytestmark = pytest.mark.asyncio
@@ -37,13 +37,13 @@ logger = logging.getLogger(__name__)
 
 # Removed InMemoryMetadataStore import
 from sqlalchemy.ext.asyncio import AsyncSession # Import session for fixture
-from src.ops_core.metadata.sql_store import SqlMetadataStore # Import the store
+from ops_core.metadata.sql_store import SqlMetadataStore # Import the store
 
 # Mark all tests in this module as asyncio
 pytestmark = pytest.mark.asyncio
 
 # Import the actual OpsMcpClient to use its spec correctly
-from src.ops_core.mcp_client.client import OpsMcpClient # Corrected import path
+from ops_core.mcp_client.client import OpsMcpClient # Corrected import path
 
 
 # Removed module-level fixture, setup moved to pytest_configure in conftest.py
@@ -88,8 +88,8 @@ async def test_app_components( # Made fixture async
     # Patch the config loader and the actor's send method globally for this fixture's scope
     # Corrected patch targets for src layout
     # Ensure the patch for execute_agent_task_actor.send is active here
-    with patch("src.ops_core.mcp_client.client.get_resolved_mcp_config", return_value=McpConfig(servers={})), \
-         patch("src.ops_core.scheduler.engine.execute_agent_task_actor.send", new_callable=MagicMock) as mock_actor_send:
+    with patch("ops_core.mcp_client.client.get_resolved_mcp_config", return_value=McpConfig(servers={})), \
+         patch("ops_core.scheduler.engine.execute_agent_task_actor.send", new_callable=MagicMock) as mock_actor_send:
         # Use httpx.AsyncClient with ASGITransport
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -143,9 +143,9 @@ async def test_e2e_successful_agent_task(
 
     # Patch the Agent class and LLM client getter within the scope of the logic function
     # Import the logic function directly
-    from src.ops_core.scheduler.engine import _run_agent_task_logic # Corrected import path
-    with patch("src.ops_core.scheduler.engine.Agent", return_value=mock_agent) as mock_agent_class, \
-         patch("src.ops_core.scheduler.engine.get_llm_client", return_value=MagicMock(spec=BaseLlmClient)) as mock_get_llm:
+    from ops_core.scheduler.engine import _run_agent_task_logic # Corrected import path
+    with patch("ops_core.scheduler.engine.Agent", return_value=mock_agent) as mock_agent_class, \
+         patch("ops_core.scheduler.engine.get_llm_client", return_value=MagicMock(spec=BaseLlmClient)) as mock_get_llm:
         # No need to patch getters inside logic, pass dependencies directly
 
         # Extract goal from input_data for the call
@@ -223,9 +223,9 @@ async def test_e2e_failed_agent_task(
 
     # Patch the Agent class and LLM client getter within the scope of the logic function
     # Import the logic function directly
-    from src.ops_core.scheduler.engine import _run_agent_task_logic # Corrected import path
-    with patch("src.ops_core.scheduler.engine.Agent", return_value=mock_agent) as mock_agent_class, \
-         patch("src.ops_core.scheduler.engine.get_llm_client", return_value=MagicMock(spec=BaseLlmClient)) as mock_get_llm:
+    from ops_core.scheduler.engine import _run_agent_task_logic # Corrected import path
+    with patch("ops_core.scheduler.engine.Agent", return_value=mock_agent) as mock_agent_class, \
+         patch("ops_core.scheduler.engine.get_llm_client", return_value=MagicMock(spec=BaseLlmClient)) as mock_get_llm:
         # No need to patch getters inside logic
 
         # Extract goal from input_data for the call
@@ -322,9 +322,9 @@ async def test_e2e_mcp_proxy_agent_task(
 
     # Patch the Agent class and LLM client getter within the scope of the logic function
     # Import the logic function directly
-    from src.ops_core.scheduler.engine import _run_agent_task_logic # Corrected import path
-    with patch("src.ops_core.scheduler.engine.Agent", return_value=mock_agent) as mock_agent_class, \
-         patch("src.ops_core.scheduler.engine.get_llm_client", return_value=MagicMock(spec=BaseLlmClient)) as mock_get_llm:
+    from ops_core.scheduler.engine import _run_agent_task_logic # Corrected import path
+    with patch("ops_core.scheduler.engine.Agent", return_value=mock_agent) as mock_agent_class, \
+         patch("ops_core.scheduler.engine.get_llm_client", return_value=MagicMock(spec=BaseLlmClient)) as mock_get_llm:
         # No need to patch getters inside logic
 
         # We need to simulate the agent's tool execution step calling the *actual*

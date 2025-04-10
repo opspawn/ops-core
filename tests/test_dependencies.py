@@ -16,6 +16,7 @@ from ops_core.dependencies import (
 import ops_core.dependencies
 
 # Import the classes/bases these functions are supposed to return instances of
+# Use the 'src.' prefix consistent with the source file imports
 from ops_core.metadata.base import BaseMetadataStore # Use Base for flexibility
 from ops_core.metadata.sql_store import SqlMetadataStore # Specific implementation
 # from ops_core.scheduler.engine import InMemoryScheduler # Not needed for these tests

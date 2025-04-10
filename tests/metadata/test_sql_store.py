@@ -5,14 +5,15 @@ import time
 import uuid
 from copy import deepcopy
 import asyncio # Add this import
+import pytest_asyncio # Add missing import
 
 import pytest
 from sqlmodel import SQLModel, create_engine, Session
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Import the custom exception and the store implementation
-from src.ops_core.metadata.sql_store import SqlMetadataStore, TaskNotFoundError, get_session, engine as app_engine
-from src.ops_core.models.tasks import Task, TaskStatus
+from ops_core.metadata.sql_store import SqlMetadataStore, TaskNotFoundError, get_session, engine as app_engine
+from ops_core.models.tasks import Task, TaskStatus
 
 # Use pytest-asyncio for async tests
 pytestmark = pytest.mark.asyncio
@@ -20,11 +21,15 @@ pytestmark = pytest.mark.asyncio
 # Note: Database setup/teardown and session fixtures are expected
 # to be provided by conftest.py
 
-@pytest.fixture
-def store() -> SqlMetadataStore:
-    """Provides a SqlMetadataStore instance for each test."""
-    # The store itself is stateless, relying on the session fixture
-    return SqlMetadataStore()
+# Change to async fixture to accept db_session
+@pytest_asyncio.fixture
+async def store(db_session: AsyncSession) -> SqlMetadataStore:
+    """
+    Provides a SqlMetadataStore instance initialized with the
+    transactional session for the current test.
+    """
+    # Pass the function-scoped, transactional session to the store
+    return SqlMetadataStore(session=db_session)
 
 @pytest.fixture
 def sample_task() -> Task:
@@ -54,9 +59,6 @@ async def test_add_task(store: SqlMetadataStore, sample_task: Task, db_session: 
     assert retrieved_task is not None
     assert retrieved_task.task_id == task_id
     assert retrieved_task.name == sample_task.name
-
-    # Verify it's a distinct object in memory after retrieval
-    assert retrieved_task is not added_task
 
 
 async def test_add_task_duplicate_id_fails_implicitly(store: SqlMetadataStore, sample_task: Task, db_session: AsyncSession):

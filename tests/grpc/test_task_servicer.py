@@ -12,13 +12,13 @@ from google.protobuf import struct_pb2
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Import the servicer and generated types from the renamed directory
-from src.ops_core.grpc_internal.task_servicer import TaskServicer
-from src.ops_core.grpc_internal import tasks_pb2, tasks_pb2_grpc
+from ops_core.grpc_internal.task_servicer import TaskServicer
+from ops_core.grpc_internal import tasks_pb2, tasks_pb2_grpc
 
 # Import core components and models
-from src.ops_core.scheduler.engine import InMemoryScheduler # Keep for mocking
-from src.ops_core.metadata.sql_store import SqlMetadataStore # Import real store
-from src.ops_core.models import Task as CoreTask, TaskStatus as CoreTaskStatus
+from ops_core.scheduler.engine import InMemoryScheduler # Keep for mocking
+from ops_core.metadata.sql_store import SqlMetadataStore # Import real store
+from ops_core.models import Task as CoreTask, TaskStatus as CoreTaskStatus
 
 # --- Fixtures ---
 

@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import pytest
 from pydantic import ValidationError
 
-from src.ops_core.models.tasks import Task, TaskStatus, current_utc_time
+from ops_core.models.tasks import Task, TaskStatus, current_utc_time
 
 
 def test_task_status_enum():

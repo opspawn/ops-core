@@ -23,19 +23,19 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Add the project root directory to the Python path
-# This allows Alembic to find your models
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-sys.path.insert(0, project_root)
+# Add the src directory to the Python path for src layout
+# This allows Alembic to find your models like src.ops_core.models
+src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
+sys.path.insert(0, src_path)
 
 # Import your models and the shared metadata object
 # Ensure all models that should be tracked by Alembic are imported here
 from ops_core.models.tasks import Task # Import the Task model
 # Import the shared metadata object from the models package
-from ops_core.models import metadata as target_metadata # Use the shared metadata
+from ops_core.models.base import metadata as target_metadata # Use the shared metadata from base
 
 # Import the application config loader to get the database URL
-from ops_core.config.loader import get_resolved_mcp_config
+from ops_core.config.loader import get_resolved_mcp_config # Use src prefix
 
 # The target_metadata is now imported directly from the models package
 

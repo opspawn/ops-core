@@ -5,17 +5,17 @@ from dramatiq.results.backends.stub import StubBackend
 
 import os # Import os to check environment variable
 
-# Import the instance directly from the module
-# This import will fail if DRAMATIQ_TESTING=1, so the skipif is crucial
-from src.ops_core.tasks.broker import rabbitmq_broker
-
 
 # Skip this test if DRAMATIQ_TESTING is set, as rabbitmq_broker won't exist
 @pytest.mark.skipif(os.getenv('DRAMATIQ_TESTING') == '1', reason="Test requires real RabbitmqBroker, skipped when DRAMATIQ_TESTING=1")
 def test_broker_instance_created():
     """
     Test that the rabbitmq_broker instance is created and configured correctly.
+    Import is moved inside the function to avoid collection errors when skipped.
     """
+    # Import the instance directly from the module inside the test function
+    from ops_core.tasks.broker import rabbitmq_broker
+
     assert isinstance(rabbitmq_broker, RabbitmqBroker)
     # Note: The URL is currently hardcoded in broker.py.
     # Testing the exact URL value here is brittle if the implementation changes

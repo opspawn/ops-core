@@ -14,17 +14,20 @@ import dramatiq # Import dramatiq
 from dramatiq.brokers.stub import StubBroker
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy import delete # Added import
 # Import SQLModel is no longer needed here if we use the specific metadata
 # from sqlmodel import SQLModel
 
-# Import the shared metadata object
-from src.ops_core.models.base import metadata
+# Import the shared metadata object and specific models needed for clearing
+from ops_core.models.base import metadata
+# Removed Task import - it should be implicitly known by metadata
+# from ops_core.models.tasks import Task # Added import
 
 from ops_core.config.loader import get_resolved_mcp_config # Import config loader
 
 from ops_core.config.loader import McpConfig # Import the type
-from src.ops_core.metadata.store import InMemoryMetadataStore # Corrected path, keep for other tests
-from src.ops_core.mcp_client.client import OpsMcpClient # Corrected path
+from ops_core.metadata.store import InMemoryMetadataStore # Corrected path, keep for other tests
+from ops_core.mcp_client.client import OpsMcpClient # Corrected path
 # Removed sys.path hack
 # Removed actor import to break collection-time dependency chain causing metadata error
 # from src.ops_core.scheduler.engine import execute_agent_task_actor
@@ -50,36 +53,45 @@ if not TEST_DATABASE_URL:
 
 # Removed deprecated custom event_loop fixture; rely on pytest-asyncio default
 
-# Removed session-scoped db_engine fixture
-
-# Removed session-scoped _setup_database fixture
-
+# Function-scoped engine, created once per test function run
 @pytest_asyncio.fixture(scope="function")
-async def db_session(): # Now function-scoped, creates engine and tables
-    """
-    Provides an AsyncSession for each test function with a clean database state.
-    Creates a new engine and tables for each test and drops them afterwards.
-    """
-    # Create engine within the function scope
+async def db_engine():
+    """Provides an async engine fixture, managing tables for a single test."""
     engine = create_async_engine(TEST_DATABASE_URL, echo=False)
-
-    # Create tables using the shared metadata object
     async with engine.begin() as conn:
-        await conn.run_sync(metadata.create_all)
-
-    # Create session factory bound to this engine
-    AsyncTestSessionLocal = sessionmaker(
-        bind=engine, class_=AsyncSession, expire_on_commit=False
-    )
-    async with AsyncTestSessionLocal() as session:
-        yield session # Provide the session to the test
-
-    # Drop tables using the shared metadata object after the test
-    async with engine.begin() as conn:
+        # Ensure clean start and create tables using shared metadata
         await conn.run_sync(metadata.drop_all)
-
-    # Dispose the engine
+        await conn.run_sync(metadata.create_all)
+    yield engine
+    # Dispose the engine after all tests in the module are done
     await engine.dispose()
+
+# Function-scoped session, ensures test isolation via transactions
+@pytest_asyncio.fixture(scope="function")
+async def db_session(db_engine):
+    """
+    Provides a transactional AsyncSession for each test function.
+    Changes are rolled back automatically after each test.
+    Also explicitly clears the Task table before yielding.
+    """
+    async_session_factory = sessionmaker(
+        bind=db_engine, class_=AsyncSession, expire_on_commit=False
+    )
+    async with async_session_factory() as session:
+        # Explicitly delete all tasks before starting the test transaction
+        # This is an extra safety measure against state leakage
+        # Need to re-import Task locally for delete() to work
+        from ops_core.models.tasks import Task
+        await session.execute(delete(Task))
+        await session.commit() # Commit the delete before starting the test transaction
+
+        # Begin a nested transaction (using SAVEPOINT) for the test itself
+        await session.begin_nested()
+        yield session
+        # Rollback the test transaction ensures isolation
+        await session.rollback()
+        # Close the session (optional, but good practice)
+        await session.close()
 
 
 # --- Existing Fixtures ---
