@@ -10,19 +10,24 @@ import asyncio
 import os # Added
 from dotenv import load_dotenv # Added
 from unittest.mock import patch, MagicMock, AsyncMock
-
+import dramatiq # Import dramatiq
 from dramatiq.brokers.stub import StubBroker
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
-from sqlmodel import SQLModel # Import SQLModel
+# Import SQLModel is no longer needed here if we use the specific metadata
+# from sqlmodel import SQLModel
+
+# Import the shared metadata object
+from src.ops_core.models.base import metadata
 
 from ops_core.config.loader import get_resolved_mcp_config # Import config loader
 
 from ops_core.config.loader import McpConfig # Import the type
-from ops_core.metadata.store import InMemoryMetadataStore # Keep for other tests
-from ops_core.mcp_client.client import OpsMcpClient
+from src.ops_core.metadata.store import InMemoryMetadataStore # Corrected path, keep for other tests
+from src.ops_core.mcp_client.client import OpsMcpClient # Corrected path
 # Removed sys.path hack
-from ops_core.scheduler.engine import execute_agent_task_actor # Import actor to get queue name
+# Removed actor import to break collection-time dependency chain causing metadata error
+# from src.ops_core.scheduler.engine import execute_agent_task_actor
 
 # Load environment variables from .env file in the project root
 # This ensures DATABASE_URL is available for tests
@@ -43,40 +48,38 @@ if not TEST_DATABASE_URL:
 # Modify URL slightly if needed for testing (e.g., different DB name)
 # TEST_DATABASE_URL = TEST_DATABASE_URL.replace("/opspawn_db", "/test_opspawn_db")
 
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create an instance of the default event loop for session scope."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
+# Removed deprecated custom event_loop fixture; rely on pytest-asyncio default
 
-@pytest_asyncio.fixture(scope="session")
-async def db_engine():
-    """Creates an async engine for the test session."""
-    # statement_cache_size is incompatible with asyncpg
-    engine = create_async_engine(TEST_DATABASE_URL, echo=False)
-    yield engine
-    await engine.dispose()
+# Removed session-scoped db_engine fixture
+
+# Removed session-scoped _setup_database fixture
 
 @pytest_asyncio.fixture(scope="function")
-async def db_session(db_engine):
+async def db_session(): # Now function-scoped, creates engine and tables
     """
-    Provides a clean database state and an AsyncSession for each test function.
-    Creates tables before the test and drops them afterwards.
+    Provides an AsyncSession for each test function with a clean database state.
+    Creates a new engine and tables for each test and drops them afterwards.
     """
-    async with db_engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.create_all)
+    # Create engine within the function scope
+    engine = create_async_engine(TEST_DATABASE_URL, echo=False)
 
+    # Create tables using the shared metadata object
+    async with engine.begin() as conn:
+        await conn.run_sync(metadata.create_all)
+
+    # Create session factory bound to this engine
     AsyncTestSessionLocal = sessionmaker(
-        bind=db_engine, class_=AsyncSession, expire_on_commit=False
+        bind=engine, class_=AsyncSession, expire_on_commit=False
     )
     async with AsyncTestSessionLocal() as session:
-        yield session
-        # Optional: You might want additional cleanup logic here if needed
+        yield session # Provide the session to the test
 
-    # Drop tables after the test
-    async with db_engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.drop_all)
+    # Drop tables using the shared metadata object after the test
+    async with engine.begin() as conn:
+        await conn.run_sync(metadata.drop_all)
+
+    # Dispose the engine
+    await engine.dispose()
 
 
 # --- Existing Fixtures ---
@@ -97,13 +100,11 @@ async def mock_mcp_client() -> MagicMock:
     # Add other methods if needed by tests
     return client
 
-@pytest.fixture(scope="function")
-def stub_broker():
-    """Provides a Dramatiq StubBroker."""
-    broker = StubBroker()
-    # Explicitly declare the queue used by the actor
-    broker.declare_queue(execute_agent_task_actor.queue_name)
-    # Middleware might be needed if tests rely on it, add here if necessary
-    # broker.add_middleware(...)
-    yield broker
-    broker.flush_all() # Clear queues after test
+# Removed stub_broker fixture definition. Broker setup will be handled explicitly where needed.
+
+# --- Global Test Setup ---
+
+# Removed pytest_configure hook as broker setup is now handled conditionally
+# in src/ops_core/tasks/broker.py based on DRAMATIQ_TESTING env var.
+
+# Removed autouse set_stub_broker fixture.

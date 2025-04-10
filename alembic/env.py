@@ -28,16 +28,16 @@ if config.config_file_name is not None:
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, project_root)
 
-# Import your models and SQLModel base metadata
+# Import your models and the shared metadata object
 # Ensure all models that should be tracked by Alembic are imported here
 from ops_core.models.tasks import Task # Import the Task model
-from sqlmodel import SQLModel # Import the SQLModel base
+# Import the shared metadata object from the models package
+from ops_core.models import metadata as target_metadata # Use the shared metadata
 
 # Import the application config loader to get the database URL
 from ops_core.config.loader import get_resolved_mcp_config
 
-# Set the SQLModel metadata as the target for Alembic
-target_metadata = SQLModel.metadata
+# The target_metadata is now imported directly from the models package
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

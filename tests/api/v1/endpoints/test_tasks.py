@@ -10,13 +10,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 # Import the FastAPI app instance
-from ops_core.main import app
+from src.ops_core.main import app
 # Import the dependency functions we need to override
-from ops_core.dependencies import get_scheduler, get_metadata_store, get_db_session
+from src.ops_core.dependencies import get_scheduler, get_metadata_store, get_db_session
 # Import necessary models and schemas
-from ops_core.models.tasks import Task, TaskStatus
-from ops_core.metadata.sql_store import SqlMetadataStore # Import real store
-from ops_core.api.v1.schemas.tasks import TaskResponse, TaskListResponse
+from src.ops_core.models.tasks import Task, TaskStatus
+from src.ops_core.metadata.sql_store import SqlMetadataStore # Import real store
+from src.ops_core.api.v1.schemas.tasks import TaskResponse, TaskListResponse
 
 
 # --- Mocks ---

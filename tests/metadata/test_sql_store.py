@@ -11,8 +11,8 @@ from sqlmodel import SQLModel, create_engine, Session
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Import the custom exception and the store implementation
-from ops_core.metadata.sql_store import SqlMetadataStore, TaskNotFoundError, get_session, engine as app_engine
-from ops_core.models.tasks import Task, TaskStatus
+from src.ops_core.metadata.sql_store import SqlMetadataStore, TaskNotFoundError, get_session, engine as app_engine
+from src.ops_core.models.tasks import Task, TaskStatus
 
 # Use pytest-asyncio for async tests
 pytestmark = pytest.mark.asyncio

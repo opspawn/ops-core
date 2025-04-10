@@ -36,4 +36,4 @@ exclude = ["tests*"] # Exclude the tests directory relative to the root
 
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
-asyncio_default_fixture_loop_scope = "function"
+asyncio_default_fixture_loop_scope = "function" # Reverted back to function

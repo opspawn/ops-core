@@ -61,7 +61,6 @@ def test_app_components_async(mock_metadata_store, mock_mcp_client, stub_broker,
             fastapi_app.dependency_overrides = {}
 
 
-@pytest.mark.skip(reason="Skipping due to persistent test env/patching issues (AMQPConnectionError/AttributeError). See Task B.1.")
 async def test_rest_api_triggers_async_actor_send(
     test_app_components_async, # Use the local fixture
     mocker # Add mocker for patching Agent
@@ -106,7 +105,6 @@ async def test_rest_api_triggers_async_actor_send(
     assert queued_message.args == (task_id, task_data["input_data"].get("goal", "No goal specified"), task_data["input_data"])
 
 
-@pytest.mark.skip(reason="Skipping due to persistent test env/patching issues (AMQPConnectionError/AttributeError). See Task B.1.")
 async def test_full_async_workflow_success(
     test_app_components_async, # Use the local fixture
     # stub_worker fixture removed
@@ -150,7 +148,6 @@ async def test_full_async_workflow_success(
     # No need to check final task status as actor logic is not executed
 
 
-@pytest.mark.skip(reason="Skipping due to persistent test env/patching issues (AMQPConnectionError/AttributeError). See Task B.1.")
 async def test_rest_api_async_agent_workflow_failure(
     test_app_components_async, # Use the local fixture
     mocker # Use mocker for patching
@@ -193,7 +190,6 @@ async def test_rest_api_async_agent_workflow_failure(
     # No need to check final task status as actor logic is not executed
 
 
-@pytest.mark.skip(reason="Skipping due to persistent test env/patching issues (AMQPConnectionError/AttributeError). See Task B.1.")
 async def test_rest_api_async_mcp_proxy_workflow(
     test_app_components_async, # Use the local fixture
     mocker # Use mocker for patching

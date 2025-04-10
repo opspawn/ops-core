@@ -12,13 +12,13 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from ops_core.metadata.sql_store import SqlMetadataStore # Import the real store
-from ops_core.metadata.base import BaseMetadataStore # Import base for type hints
-from ops_core.metadata.store import TaskNotFoundError # Keep error
-from ops_core.models.tasks import Task, TaskStatus
-from ops_core.scheduler.engine import InMemoryScheduler, _run_agent_task_logic # Import the function
+from src.ops_core.metadata.sql_store import SqlMetadataStore # Import the real store
+from src.ops_core.metadata.base import BaseMetadataStore # Import base for type hints
+from src.ops_core.metadata.store import TaskNotFoundError # Keep error
+from src.ops_core.models.tasks import Task, TaskStatus
+from src.ops_core.scheduler.engine import InMemoryScheduler, _run_agent_task_logic # Import the function
 from agentkit.core.interfaces import BaseLlmClient, BasePlanner # Import interfaces for mocking
-from ops_core.mcp_client.client import OpsMcpClient # Import for mocking spec
+from src.ops_core.mcp_client.client import OpsMcpClient # Import for mocking spec
 from agentkit.core.agent import Agent # Import for mocking spec
 from agentkit.memory.short_term import ShortTermMemory # Import for mocking spec
 # Import the database session fixture if not already globally available via conftest
@@ -36,7 +36,7 @@ from agentkit.memory.short_term import ShortTermMemory # Import for mocking spec
 def mock_mcp_client() -> MagicMock:
     """Provides a mock OpsMcpClient."""
     # Need to import OpsMcpClient for spec
-    from ops_core.mcp_client.client import OpsMcpClient
+    from src.ops_core.mcp_client.client import OpsMcpClient
     return MagicMock(spec=OpsMcpClient)
 
 
@@ -56,7 +56,7 @@ def test_scheduler_initialization(scheduler: InMemoryScheduler):
 
 @pytest.mark.asyncio
 # Patch the actor's send method within the test's scope
-@patch("ops_core.scheduler.engine.execute_agent_task_actor.send")
+@patch("src.ops_core.scheduler.engine.execute_agent_task_actor.send")
 async def test_submit_task(
     mock_actor_send: MagicMock,
     scheduler: InMemoryScheduler, # Uses the updated fixture with SqlMetadataStore
@@ -102,7 +102,7 @@ async def test_submit_task(
 
 @pytest.mark.asyncio
 # Patch the actor's send method here as well if submit_task calls it unconditionally
-@patch("ops_core.scheduler.engine.execute_agent_task_actor.send")
+@patch("src.ops_core.scheduler.engine.execute_agent_task_actor.send")
 # Patch the session commit method to simulate DB failure
 @patch("sqlalchemy.ext.asyncio.AsyncSession.commit", new_callable=AsyncMock)
 async def test_submit_task_store_add_failure(
@@ -153,20 +153,20 @@ async def test_run_agent_task_logic_success(mocker, db_session: AsyncSession):
 
     # Mock dependencies obtained via getters within the function
     # No longer need to mock get_metadata_store
-    mock_mcp_client = mocker.patch("ops_core.scheduler.engine.get_mcp_client", return_value=AsyncMock(spec=OpsMcpClient)).return_value
+    mock_mcp_client = mocker.patch("src.ops_core.scheduler.engine.get_mcp_client", return_value=AsyncMock(spec=OpsMcpClient)).return_value
     # mock_mcp_client._is_running = True # Check removed in latest engine code
 
     # Mock dependencies instantiated within the function
-    mock_llm_client = mocker.patch("ops_core.scheduler.engine.get_llm_client", return_value=MagicMock(spec=BaseLlmClient)).return_value
-    mock_planner = mocker.patch("ops_core.scheduler.engine.get_planner", return_value=MagicMock(spec=BasePlanner)).return_value
-    mock_agent_patch = mocker.patch("ops_core.scheduler.engine.Agent", return_value=AsyncMock(spec=Agent))
+    mock_llm_client = mocker.patch("src.ops_core.scheduler.engine.get_llm_client", return_value=MagicMock(spec=BaseLlmClient)).return_value
+    mock_planner = mocker.patch("src.ops_core.scheduler.engine.get_planner", return_value=MagicMock(spec=BasePlanner)).return_value
+    mock_agent_patch = mocker.patch("src.ops_core.scheduler.engine.Agent", return_value=AsyncMock(spec=Agent))
     mock_agent_instance = mock_agent_patch.return_value
     mock_agent_instance.run = AsyncMock(return_value=agent_result)
-    mock_memory_instance = mocker.patch("ops_core.scheduler.engine.ShortTermMemory", return_value=MagicMock(spec=ShortTermMemory)).return_value
+    mock_memory_instance = mocker.patch("src.ops_core.scheduler.engine.ShortTermMemory", return_value=MagicMock(spec=ShortTermMemory)).return_value
     mock_memory_instance.get_context = AsyncMock(return_value=memory_content)
     mock_agent_instance.memory = mock_memory_instance
-    mocker.patch("ops_core.scheduler.engine.ToolRegistry")
-    mocker.patch("ops_core.scheduler.engine.MCPProxyTool")
+    mocker.patch("src.ops_core.scheduler.engine.ToolRegistry")
+    mocker.patch("src.ops_core.scheduler.engine.MCPProxyTool")
 
     # Call the function under test, passing the real store
     await _run_agent_task_logic(
@@ -213,16 +213,16 @@ async def test_run_agent_task_logic_agent_failure(mocker, db_session: AsyncSessi
 
     # Mock dependencies
     # No longer need to mock get_metadata_store
-    mock_mcp_client = mocker.patch("ops_core.scheduler.engine.get_mcp_client", return_value=AsyncMock(spec=OpsMcpClient)).return_value
+    mock_mcp_client = mocker.patch("src.ops_core.scheduler.engine.get_mcp_client", return_value=AsyncMock(spec=OpsMcpClient)).return_value
     # mock_mcp_client._is_running = True # Check removed
-    mocker.patch("ops_core.scheduler.engine.get_llm_client", return_value=MagicMock(spec=BaseLlmClient))
-    mocker.patch("ops_core.scheduler.engine.get_planner", return_value=MagicMock(spec=BasePlanner))
-    mock_agent_patch_fail = mocker.patch("ops_core.scheduler.engine.Agent", return_value=AsyncMock(spec=Agent))
+    mocker.patch("src.ops_core.scheduler.engine.get_llm_client", return_value=MagicMock(spec=BaseLlmClient))
+    mocker.patch("src.ops_core.scheduler.engine.get_planner", return_value=MagicMock(spec=BasePlanner))
+    mock_agent_patch_fail = mocker.patch("src.ops_core.scheduler.engine.Agent", return_value=AsyncMock(spec=Agent))
     mock_agent_instance = mock_agent_patch_fail.return_value
     # Simulate agent run raising an exception
     mock_agent_instance.run = AsyncMock(side_effect=Exception(agent_error_message))
-    mocker.patch("ops_core.scheduler.engine.ShortTermMemory")
-    mocker.patch("ops_core.scheduler.engine.ToolRegistry")
+    mocker.patch("src.ops_core.scheduler.engine.ShortTermMemory")
+    mocker.patch("src.ops_core.scheduler.engine.ToolRegistry")
 
     # Call the function, passing the real store
     await _run_agent_task_logic(
@@ -255,10 +255,10 @@ async def test_run_agent_task_logic_task_not_found(mocker, db_session: AsyncSess
     sql_store = SqlMetadataStore() # No session needed in constructor
 
     # Mock other dependencies (agent etc. shouldn't be called)
-    mock_mcp_client = mocker.patch("ops_core.scheduler.engine.get_mcp_client", return_value=AsyncMock(spec=OpsMcpClient)).return_value
-    mocker.patch("ops_core.scheduler.engine.get_llm_client")
-    mocker.patch("ops_core.scheduler.engine.get_planner")
-    mock_agent_patch_notfound = mocker.patch("ops_core.scheduler.engine.Agent")
+    mock_mcp_client = mocker.patch("src.ops_core.scheduler.engine.get_mcp_client", return_value=AsyncMock(spec=OpsMcpClient)).return_value
+    mocker.patch("src.ops_core.scheduler.engine.get_llm_client")
+    mocker.patch("src.ops_core.scheduler.engine.get_planner")
+    mock_agent_patch_notfound = mocker.patch("src.ops_core.scheduler.engine.Agent")
 
     # Call the function with the non-existent task_id and real store
     # Expect TaskNotFoundError during the first status update

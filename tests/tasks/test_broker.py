@@ -3,10 +3,15 @@ from dramatiq.brokers.rabbitmq import RabbitmqBroker
 from dramatiq.results import Results
 from dramatiq.results.backends.stub import StubBackend
 
+import os # Import os to check environment variable
+
 # Import the instance directly from the module
-from ops_core.tasks.broker import rabbitmq_broker
+# This import will fail if DRAMATIQ_TESTING=1, so the skipif is crucial
+from src.ops_core.tasks.broker import rabbitmq_broker
 
 
+# Skip this test if DRAMATIQ_TESTING is set, as rabbitmq_broker won't exist
+@pytest.mark.skipif(os.getenv('DRAMATIQ_TESTING') == '1', reason="Test requires real RabbitmqBroker, skipped when DRAMATIQ_TESTING=1")
 def test_broker_instance_created():
     """
     Test that the rabbitmq_broker instance is created and configured correctly.

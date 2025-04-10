@@ -15,8 +15,9 @@ from ops_core.dependencies import (
 # Import the module itself to modify its globals in the fixture
 import ops_core.dependencies
 
-# Import the classes these functions are supposed to return instances of
-from ops_core.metadata.store import InMemoryMetadataStore
+# Import the classes/bases these functions are supposed to return instances of
+from ops_core.metadata.base import BaseMetadataStore # Use Base for flexibility
+from ops_core.metadata.sql_store import SqlMetadataStore # Specific implementation
 # from ops_core.scheduler.engine import InMemoryScheduler # Not needed for these tests
 from ops_core.mcp_client.client import OpsMcpClient
 
@@ -33,17 +34,24 @@ def reset_singletons():
     ops_core.dependencies.deps.mcp_client = None
 
 
-def test_get_metadata_store_returns_instance():
-    """Verify get_metadata_store returns an instance of InMemoryMetadataStore."""
-    store = get_metadata_store()
-    assert isinstance(store, InMemoryMetadataStore)
+@pytest.mark.asyncio
+async def test_get_metadata_store_returns_instance():
+    """Verify get_metadata_store returns an instance of SqlMetadataStore."""
+    # Note: get_metadata_store is now async
+    store = await get_metadata_store()
+    # Check against the specific implementation returned
+    assert isinstance(store, SqlMetadataStore)
+    # Could also check against the base class:
+    # assert isinstance(store, BaseMetadataStore)
 
 
-def test_get_metadata_store_is_singleton():
-    """Verify get_metadata_store returns the same instance on subsequent calls."""
-    store1 = get_metadata_store()
-    store2 = get_metadata_store()
-    assert store1 is store2
+@pytest.mark.asyncio
+async def test_get_metadata_store_is_not_singleton():
+    """Verify get_metadata_store returns a new instance on subsequent calls."""
+    # Note: get_metadata_store is now async and returns new instances
+    store1 = await get_metadata_store()
+    store2 = await get_metadata_store()
+    assert store1 is not store2 # It should return new instances now
 
 
 # Removed tests for get_scheduler as the function does not exist

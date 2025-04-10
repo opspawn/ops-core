@@ -8,8 +8,8 @@ from copy import deepcopy
 import pytest
 
 # Import the custom exception
-from ops_core.metadata.store import InMemoryMetadataStore, TaskNotFoundError
-from ops_core.models.tasks import Task, TaskStatus
+from src.ops_core.metadata.store import InMemoryMetadataStore, TaskNotFoundError
+from src.ops_core.models.tasks import Task, TaskStatus
 
 
 @pytest.fixture
