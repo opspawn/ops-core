@@ -83,14 +83,11 @@ async def db_session(db_engine):
         # Need to re-import Task locally for delete() to work
         from ops_core.models.tasks import Task
         await session.execute(delete(Task))
-        await session.commit() # Commit the delete before starting the test transaction
+        await session.commit() # Commit the delete before yielding
 
-        # Begin a nested transaction (using SAVEPOINT) for the test itself
-        await session.begin_nested()
+        # Yield the session directly without transaction management here
         yield session
-        # Rollback the test transaction ensures isolation
-        await session.rollback()
-        # Close the session (optional, but good practice)
+        # Rely on db_engine drop/create for isolation between tests
         await session.close()
 
 

@@ -1,5 +1,5 @@
 """
-Unit tests for the Tasks API endpoints.
+Unit tests for the Tasks API endpoints using real dependencies and per-test mocking.
 """
 
 import pytest
@@ -11,8 +11,8 @@ from sqlalchemy.future import select
 
 # Import the FastAPI app instance
 from ops_core.main import app
-# Import the dependency functions we need to override
-from ops_core.dependencies import get_scheduler, get_metadata_store, get_db_session
+# Import the dependency functions we need to override/patch
+from ops_core.dependencies import get_scheduler # Only need get_scheduler for patching
 # Import necessary models and schemas
 from ops_core.models.tasks import Task, TaskStatus
 from ops_core.metadata.sql_store import SqlMetadataStore # Import real store
@@ -20,70 +20,28 @@ from ops_core.api.v1.schemas.tasks import TaskResponse, TaskListResponse
 
 
 # --- Mocks ---
-# Keep scheduler mock for now as create_task depends on it
+# Keep scheduler mock instance for use in patches
 mock_scheduler = AsyncMock()
-# Remove metadata store mock
-# mock_metadata_store = AsyncMock()
-
-
-# --- Fixtures ---
-@pytest.fixture(scope="function")
-def override_dependencies_in_app(db_session: AsyncSession):
-    """
-    Fixture to override dependencies for each test function.
-    Provides a real SqlMetadataStore using the test db_session.
-    Keeps the scheduler mocked.
-    """
-    # Override get_db_session to return the test session
-    app.dependency_overrides[get_db_session] = lambda: db_session
-
-    # Override get_metadata_store to use the overridden get_db_session
-    # Note: FastAPI handles resolving the Depends(get_db_session) within get_metadata_store
-    # So we just need to override get_db_session itself.
-    # We don't need to explicitly override get_metadata_store unless we want to mock it.
-
-    # Override scheduler
-    app.dependency_overrides[get_scheduler] = lambda: mock_scheduler
-
-    yield  # Run the test
-
-    # Clean up overrides after test function finishes
-    app.dependency_overrides = {}
-
-
-@pytest.fixture(autouse=True)
-def reset_mocks():
-    """Reset scheduler mock before each test."""
-    mock_scheduler.reset_mock()
-    # Set default return values for mocked methods
-    mock_scheduler.submit_task.return_value = Task(
-        task_id="new_task_123",
-        task_type="test_task",
-        status=TaskStatus.PENDING,
-        input_data={"key": "value"},
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
-    )
-    # Remove store mock resets
-    # mock_metadata_store.reset_mock()
-    # mock_metadata_store.get_task.return_value = None
-    # mock_metadata_store.list_tasks.return_value = []
 
 
 # --- Test Client ---
-# Use the app instance directly, overrides are handled by the fixture
+# Use the app instance directly. Dependencies are handled by the app itself now.
 client = TestClient(app)
 
 
 # --- Test Cases ---
 
-# Use the override fixture implicitly via autouse=True
-def test_create_task_success(override_dependencies_in_app):
+# Note: Tests interacting with DB need the db_session fixture for setup/cleanup.
+# Scheduler mocking is now done per-test using patch.
+@patch("ops_core.api.v1.endpoints.tasks.get_scheduler", return_value=mock_scheduler)
+def test_create_task_success(mock_get_scheduler): # No db_session needed
     """
     Test successful task creation via POST /tasks/.
-    Scheduler is mocked, store interaction happens within scheduler.
+    Scheduler is mocked via patch.
     """
     # Arrange
+    # Reset the mock scheduler before this test
+    mock_scheduler.reset_mock()
     task_data = {"task_type": "agent_run", "input_data": {"prompt": "hello"}}
     expected_task_id = "new_task_123"
     # Configure mock scheduler return value
@@ -112,15 +70,16 @@ def test_create_task_success(override_dependencies_in_app):
         task_type=task_data["task_type"],
         input_data=task_data["input_data"]
     )
-    # Note: We don't verify DB state here as the scheduler (which writes to DB) is mocked.
 
 
-# Use the override fixture implicitly via autouse=True
-def test_create_task_scheduler_error(override_dependencies_in_app):
+@patch("ops_core.api.v1.endpoints.tasks.get_scheduler", return_value=mock_scheduler)
+def test_create_task_scheduler_error(mock_get_scheduler): # No db_session needed
     """
     Test task creation failure when scheduler raises an exception.
     """
     # Arrange
+    # Reset the mock scheduler before this test
+    mock_scheduler.reset_mock()
     task_data = {"task_type": "agent_run", "input_data": {"prompt": "hello"}}
     mock_scheduler.submit_task.side_effect = Exception("Scheduler boom!")
 
@@ -134,7 +93,7 @@ def test_create_task_scheduler_error(override_dependencies_in_app):
 
 
 @pytest.mark.asyncio
-async def test_get_task_success(override_dependencies_in_app, db_session: AsyncSession):
+async def test_get_task_success(db_session: AsyncSession): # No override fixture needed
     """
     Test successful retrieval of a task via GET /tasks/{task_id} using real DB.
     """
@@ -151,8 +110,8 @@ async def test_get_task_success(override_dependencies_in_app, db_session: AsyncS
         started_at=datetime.now(timezone.utc),
     )
     db_session.add(db_task)
-    await db_session.commit()
-    await db_session.refresh(db_task) # Ensure all fields are loaded
+    await db_session.commit() # Commit before making the API call
+    await db_session.close() # Close session before API call
 
     # Act
     response = client.get(f"/api/v1/tasks/{task_id}")
@@ -165,16 +124,17 @@ async def test_get_task_success(override_dependencies_in_app, db_session: AsyncS
     assert response_data["status"] == TaskStatus.RUNNING.value
     assert response_data["input_data"] == db_task.input_data
     assert response_data["started_at"] is not None
-    # No mock store to assert calls against
 
 
-def test_get_task_not_found(override_dependencies_in_app, db_session: AsyncSession):
+@pytest.mark.asyncio # Mark as async
+async def test_get_task_not_found(db_session: AsyncSession): # No override fixture needed, needs async
     """
     Test retrieval of a non-existent task via GET /tasks/{task_id} using real DB.
     """
     # Arrange
     task_id = "non_existent_task_db"
     # Ensure task does not exist (db_session fixture handles cleanup)
+    await db_session.close() # Close session before API call
 
     # Act
     response = client.get(f"/api/v1/tasks/{task_id}")
@@ -182,11 +142,10 @@ def test_get_task_not_found(override_dependencies_in_app, db_session: AsyncSessi
     # Assert
     assert response.status_code == 404
     assert response.json()["detail"] == f"Task with ID '{task_id}' not found."
-    # No mock store to assert calls against
 
 
 @pytest.mark.asyncio
-async def test_get_task_metadata_store_error(override_dependencies_in_app, db_session: AsyncSession, mocker):
+async def test_get_task_metadata_store_error(db_session: AsyncSession, mocker): # No override fixture needed
     """
     Test retrieval failure when metadata store raises an exception (simulated DB error).
     """
@@ -197,27 +156,29 @@ async def test_get_task_metadata_store_error(override_dependencies_in_app, db_se
     # Create a task in DB so the endpoint tries to fetch it
     db_task = Task(task_id=task_id, name="Error Task", task_type="error_test", status=TaskStatus.PENDING)
     db_session.add(db_task)
-    await db_session.commit()
+    await db_session.commit() # Commit before making the API call
 
-    # Patch the session's execute method to raise an error when called by get_task
-    mocker.patch.object(db_session, "execute", side_effect=Exception(error_message))
+    # Patch the SqlMetadataStore's get_task method directly
+    # We need to patch the method within the module where it's used by the dependency injector
+    mocker.patch("ops_core.dependencies.SqlMetadataStore.get_task", side_effect=Exception(error_message))
+
+    await db_session.close() # Close session before API call
 
     # Act
     response = client.get(f"/api/v1/tasks/{task_id}")
 
     # Assert
     assert response.status_code == 500
-    # The exact detail might vary depending on how the exception propagates
     assert "Failed to retrieve task" in response.json()["detail"]
-    # Check if the detail includes the simulated error message (optional, might be too specific)
-    # assert error_message in response.json()["detail"]
 
 
-def test_list_tasks_success_empty(override_dependencies_in_app, db_session: AsyncSession):
+@pytest.mark.asyncio # Mark as async
+async def test_list_tasks_success_empty(db_session: AsyncSession): # No override fixture needed, needs async
     """
     Test successful listing of tasks when none exist via GET /tasks/ using real DB.
     """
     # Arrange (Ensure DB is empty - handled by fixture)
+    await db_session.close() # Close session before API call
 
     # Act
     response = client.get("/api/v1/tasks/")
@@ -227,11 +188,10 @@ def test_list_tasks_success_empty(override_dependencies_in_app, db_session: Asyn
     response_data = response.json()
     assert response_data["tasks"] == []
     assert response_data["total"] == 0
-    # No mock store to assert calls against
 
 
 @pytest.mark.asyncio
-async def test_list_tasks_success_with_data(override_dependencies_in_app, db_session: AsyncSession):
+async def test_list_tasks_success_with_data(db_session: AsyncSession): # No override fixture needed
     """
     Test successful listing of tasks when some exist via GET /tasks/ using real DB.
     """
@@ -240,7 +200,8 @@ async def test_list_tasks_success_with_data(override_dependencies_in_app, db_ses
     task1 = Task(task_id="db_task1", name="DB Task 1", task_type="typeA", status=TaskStatus.COMPLETED, input_data={}, created_at=now, updated_at=now)
     task2 = Task(task_id="db_task2", name="DB Task 2", task_type="typeB", status=TaskStatus.PENDING, input_data={}, created_at=now, updated_at=now)
     db_session.add_all([task1, task2])
-    await db_session.commit()
+    await db_session.commit() # Commit before making the API call
+    await db_session.close() # Close session before API call
 
     # Act
     response = client.get("/api/v1/tasks/")
@@ -258,18 +219,18 @@ async def test_list_tasks_success_with_data(override_dependencies_in_app, db_ses
     task1_data = next((t for t in response_data["tasks"] if t["task_id"] == "db_task1"), None)
     assert task1_data is not None
     assert task1_data["status"] == TaskStatus.COMPLETED.value
-    # No mock store to assert calls against
 
 
 @pytest.mark.asyncio
-async def test_list_tasks_metadata_store_error(override_dependencies_in_app, db_session: AsyncSession, mocker):
+async def test_list_tasks_metadata_store_error(db_session: AsyncSession, mocker): # No override fixture needed
     """
     Test listing failure when metadata store raises an exception (simulated DB error).
     """
     # Arrange
     error_message = "Simulated failed to query tasks"
-    # Patch the session's execute method to raise an error when called by list_tasks
-    mocker.patch.object(db_session, "execute", side_effect=Exception(error_message))
+    # Patch the SqlMetadataStore's list_tasks method directly
+    mocker.patch("ops_core.dependencies.SqlMetadataStore.list_tasks", side_effect=Exception(error_message))
+    await db_session.close() # Close session before API call
 
     # Act
     response = client.get("/api/v1/tasks/")
@@ -277,13 +238,12 @@ async def test_list_tasks_metadata_store_error(override_dependencies_in_app, db_
     # Assert
     assert response.status_code == 500
     assert f"Failed to list tasks" in response.json()["detail"]
-    # assert error_message in response.json()["detail"] # Optional check
 
 
 # --- Input Validation Tests ---
 
-# These tests don't interact with the store/scheduler, so they don't need db_session
-def test_create_task_missing_task_type(override_dependencies_in_app):
+# These tests don't interact with the store/scheduler, so they don't need db_session or overrides
+def test_create_task_missing_task_type():
     """
     Test task creation with missing 'task_type' field.
     """
