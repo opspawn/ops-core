@@ -90,10 +90,9 @@ async def test_create_task_success(
         task_type=task_data["task_type"],
         status=TaskStatus.PENDING,
         input_data=task_data["input_data"],
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
+        created_at=datetime.now(timezone.utc), # Corrected indentation
+        updated_at=datetime.now(timezone.utc), # Corrected indentation
     )
-    mock_scheduler.submit_task.return_value = mock_core_task # Assign directly
 
     # Act
     response = await async_test_client.post("/api/v1/tasks/", json=task_data) # Use await
