@@ -29,8 +29,8 @@ dependencies = [
 ]
 
 [tool.setuptools.packages.find]
-# Look for packages inside the 'src' directory relative to the project root
-where = ["../src"]
+# Look for packages inside the 'src' directory relative to this project root
+where = ["src"]
 # Setuptools should find the 'ops_core' package within the 'src/' directory specified by 'where'
 exclude = ["tests*"] # Exclude the tests directory relative to the root
 
