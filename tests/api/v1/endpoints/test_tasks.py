@@ -3,48 +3,88 @@ Unit tests for the Tasks API endpoints using real dependencies and per-test mock
 """
 
 import pytest
+import pytest_asyncio # Import pytest_asyncio
+import httpx # Import httpx
 from unittest.mock import AsyncMock, MagicMock, patch
-from fastapi.testclient import TestClient
+# Remove TestClient import
+# from fastapi.testclient import TestClient
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 # Import the FastAPI app instance
-from ops_core.main import app
+from ops_core.main import app as fastapi_app # Rename for clarity
 # Import the dependency functions we need to override/patch
-from ops_core.dependencies import get_scheduler # Only need get_scheduler for patching
+from ops_core.dependencies import get_scheduler, get_metadata_store, get_db_session, get_mcp_client # Import all needed
+from ops_core.scheduler.engine import InMemoryScheduler # Import for fixture type hint
 # Import necessary models and schemas
 from ops_core.models.tasks import Task, TaskStatus
 from ops_core.metadata.sql_store import SqlMetadataStore # Import real store
 from ops_core.api.v1.schemas.tasks import TaskResponse, TaskListResponse
 
 
-# --- Mocks ---
-# Keep scheduler mock instance for use in patches
-mock_scheduler = AsyncMock()
+# --- Fixtures ---
 
+@pytest_asyncio.fixture
+async def mock_scheduler(db_session: AsyncSession) -> InMemoryScheduler:
+    """Provides a mocked InMemoryScheduler instance for dependency override."""
+    # We don't need a real store here, just the mock scheduler object
+    # If tests need to assert scheduler calls that interact with store,
+    # they might need a more complex fixture or direct patching.
+    scheduler = AsyncMock(spec=InMemoryScheduler)
+    # Mock the store within the scheduler if needed for specific tests,
+    # but the dependency override will handle the store for the API endpoint.
+    # scheduler.metadata_store = AsyncMock(spec=SqlMetadataStore)
+    return scheduler
 
-# --- Test Client ---
-# Use the app instance directly. Dependencies are handled by the app itself now.
-client = TestClient(app)
+@pytest_asyncio.fixture
+async def async_test_client(
+    db_session: AsyncSession,
+    mock_scheduler: AsyncMock # Use the simpler mock scheduler fixture
+) -> httpx.AsyncClient:
+    """Provides an httpx.AsyncClient with overridden dependencies."""
+    # Import original dependencies
+    from ops_core.dependencies import get_db_session as original_get_db_session
+    from ops_core.dependencies import get_scheduler as original_get_scheduler
+    from ops_core.dependencies import get_metadata_store as original_get_metadata_store
+
+    # Override get_db_session
+    fastapi_app.dependency_overrides[original_get_db_session] = lambda: db_session
+    # Override get_scheduler
+    fastapi_app.dependency_overrides[original_get_scheduler] = lambda: mock_scheduler
+    # Explicitly override get_metadata_store to use the test session
+    sql_store_for_api = SqlMetadataStore(session=db_session)
+    fastapi_app.dependency_overrides[original_get_metadata_store] = lambda: sql_store_for_api
+
+    # Use httpx.AsyncClient with ASGITransport
+    transport = httpx.ASGITransport(app=fastapi_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        yield client
+
+    # Clean up overrides
+    fastapi_app.dependency_overrides = {}
 
 
 # --- Test Cases ---
 
 # Note: Tests interacting with DB need the db_session fixture for setup/cleanup.
-# Scheduler mocking is now done per-test using patch.
-@patch("ops_core.api.v1.endpoints.tasks.get_scheduler", return_value=mock_scheduler)
-def test_create_task_success(mock_get_scheduler): # No db_session needed
+# Scheduler mocking is handled by the async_test_client fixture override.
+@pytest.mark.asyncio # Mark as async
+async def test_create_task_success(
+    async_test_client: httpx.AsyncClient, # Use new client fixture
+    mock_scheduler: AsyncMock, # Inject mock scheduler to check calls
+    db_session: AsyncSession # Keep db_session if needed for verification (though not strictly needed here)
+):
     """
     Test successful task creation via POST /tasks/.
-    Scheduler is mocked via patch.
+    Dependencies overridden in async_test_client fixture.
     """
     # Arrange
-    # Reset the mock scheduler before this test
-    mock_scheduler.reset_mock()
+    # Arrange
+    mock_scheduler.reset_mock() # Reset mock before use
     task_data = {"task_type": "agent_run", "input_data": {"prompt": "hello"}}
     expected_task_id = "new_task_123"
-    # Configure mock scheduler return value
+    # Configure mock scheduler return value (ensure it's awaitable if needed)
     mock_scheduler.submit_task.return_value = Task(
         task_id=expected_task_id,
         task_type=task_data["task_type"],
@@ -53,9 +93,10 @@ def test_create_task_success(mock_get_scheduler): # No db_session needed
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )
+    mock_scheduler.submit_task.return_value = mock_core_task # Assign directly
 
     # Act
-    response = client.post("/api/v1/tasks/", json=task_data)
+    response = await async_test_client.post("/api/v1/tasks/", json=task_data) # Use await
 
     # Assert
     assert response.status_code == 201
@@ -72,28 +113,33 @@ def test_create_task_success(mock_get_scheduler): # No db_session needed
     )
 
 
-@patch("ops_core.api.v1.endpoints.tasks.get_scheduler", return_value=mock_scheduler)
-def test_create_task_scheduler_error(mock_get_scheduler): # No db_session needed
+@pytest.mark.asyncio # Mark as async
+async def test_create_task_scheduler_error(
+    async_test_client: httpx.AsyncClient, # Use new client fixture
+    mock_scheduler: AsyncMock # Inject mock scheduler
+):
     """
     Test task creation failure when scheduler raises an exception.
     """
     # Arrange
-    # Reset the mock scheduler before this test
-    mock_scheduler.reset_mock()
+    mock_scheduler.reset_mock() # Reset mock before use
     task_data = {"task_type": "agent_run", "input_data": {"prompt": "hello"}}
-    mock_scheduler.submit_task.side_effect = Exception("Scheduler boom!")
+    mock_scheduler.submit_task.side_effect = Exception("Scheduler boom!") # Ensure side effect is set
 
     # Act
-    response = client.post("/api/v1/tasks/", json=task_data)
+    response = await async_test_client.post("/api/v1/tasks/", json=task_data) # Use await
 
     # Assert
     assert response.status_code == 500
     assert "Failed to submit task: Scheduler boom!" in response.json()["detail"]
-    mock_scheduler.submit_task.assert_awaited_once()
+    mock_scheduler.submit_task.assert_awaited_once() # Check it was called
 
 
 @pytest.mark.asyncio
-async def test_get_task_success(db_session: AsyncSession): # No override fixture needed
+async def test_get_task_success(
+    async_test_client: httpx.AsyncClient, # Use new client fixture
+    db_session: AsyncSession
+):
     """
     Test successful retrieval of a task via GET /tasks/{task_id} using real DB.
     """
@@ -111,10 +157,11 @@ async def test_get_task_success(db_session: AsyncSession): # No override fixture
     )
     db_session.add(db_task)
     await db_session.commit() # Commit before making the API call
-    await db_session.close() # Close session before API call
+    await db_session.commit()
+    # No need to close session here, fixture manages it
 
     # Act
-    response = client.get(f"/api/v1/tasks/{task_id}")
+    response = await async_test_client.get(f"/api/v1/tasks/{task_id}") # Use await
 
     # Assert
     assert response.status_code == 200
@@ -126,26 +173,33 @@ async def test_get_task_success(db_session: AsyncSession): # No override fixture
     assert response_data["started_at"] is not None
 
 
-@pytest.mark.asyncio # Mark as async
-async def test_get_task_not_found(db_session: AsyncSession): # No override fixture needed, needs async
+@pytest.mark.asyncio
+async def test_get_task_not_found(
+    async_test_client: httpx.AsyncClient, # Use new client fixture
+    db_session: AsyncSession
+):
     """
     Test retrieval of a non-existent task via GET /tasks/{task_id} using real DB.
     """
     # Arrange
     task_id = "non_existent_task_db"
     # Ensure task does not exist (db_session fixture handles cleanup)
-    await db_session.close() # Close session before API call
+    # No need to close session
 
     # Act
-    response = client.get(f"/api/v1/tasks/{task_id}")
+    response = await async_test_client.get(f"/api/v1/tasks/{task_id}") # Use await
 
     # Assert
-    assert response.status_code == 404
+    assert response.status_code == 404 # Expect 404 if endpoint handles TaskNotFoundError
     assert response.json()["detail"] == f"Task with ID '{task_id}' not found."
 
 
 @pytest.mark.asyncio
-async def test_get_task_metadata_store_error(db_session: AsyncSession, mocker): # No override fixture needed
+async def test_get_task_metadata_store_error(
+    async_test_client: httpx.AsyncClient, # Use new client fixture
+    db_session: AsyncSession,
+    mocker
+):
     """
     Test retrieval failure when metadata store raises an exception (simulated DB error).
     """
@@ -159,29 +213,32 @@ async def test_get_task_metadata_store_error(db_session: AsyncSession, mocker): 
     await db_session.commit() # Commit before making the API call
 
     # Patch the SqlMetadataStore's get_task method directly
-    # We need to patch the method within the module where it's used by the dependency injector
-    mocker.patch("ops_core.dependencies.SqlMetadataStore.get_task", side_effect=Exception(error_message))
-
-    await db_session.close() # Close session before API call
+    # Patch the get_task method on the SqlMetadataStore class used by the dependency override
+    # Note: Patching the class method, not an instance
+    mocker.patch("ops_core.metadata.sql_store.SqlMetadataStore.get_task", side_effect=Exception(error_message), autospec=True)
+    # No need to close session
 
     # Act
-    response = client.get(f"/api/v1/tasks/{task_id}")
+    response = await async_test_client.get(f"/api/v1/tasks/{task_id}") # Use await
 
     # Assert
     assert response.status_code == 500
     assert "Failed to retrieve task" in response.json()["detail"]
 
 
-@pytest.mark.asyncio # Mark as async
-async def test_list_tasks_success_empty(db_session: AsyncSession): # No override fixture needed, needs async
+@pytest.mark.asyncio
+async def test_list_tasks_success_empty(
+    async_test_client: httpx.AsyncClient, # Use new client fixture
+    db_session: AsyncSession
+):
     """
     Test successful listing of tasks when none exist via GET /tasks/ using real DB.
     """
     # Arrange (Ensure DB is empty - handled by fixture)
-    await db_session.close() # Close session before API call
+    # No need to close session
 
     # Act
-    response = client.get("/api/v1/tasks/")
+    response = await async_test_client.get("/api/v1/tasks/") # Use await
 
     # Assert
     assert response.status_code == 200
@@ -191,7 +248,10 @@ async def test_list_tasks_success_empty(db_session: AsyncSession): # No override
 
 
 @pytest.mark.asyncio
-async def test_list_tasks_success_with_data(db_session: AsyncSession): # No override fixture needed
+async def test_list_tasks_success_with_data(
+    async_test_client: httpx.AsyncClient, # Use new client fixture
+    db_session: AsyncSession
+):
     """
     Test successful listing of tasks when some exist via GET /tasks/ using real DB.
     """
@@ -200,11 +260,11 @@ async def test_list_tasks_success_with_data(db_session: AsyncSession): # No over
     task1 = Task(task_id="db_task1", name="DB Task 1", task_type="typeA", status=TaskStatus.COMPLETED, input_data={}, created_at=now, updated_at=now)
     task2 = Task(task_id="db_task2", name="DB Task 2", task_type="typeB", status=TaskStatus.PENDING, input_data={}, created_at=now, updated_at=now)
     db_session.add_all([task1, task2])
-    await db_session.commit() # Commit before making the API call
-    await db_session.close() # Close session before API call
+    await db_session.commit()
+    # No need to close session
 
     # Act
-    response = client.get("/api/v1/tasks/")
+    response = await async_test_client.get("/api/v1/tasks/") # Use await
 
     # Assert
     assert response.status_code == 200
@@ -222,18 +282,22 @@ async def test_list_tasks_success_with_data(db_session: AsyncSession): # No over
 
 
 @pytest.mark.asyncio
-async def test_list_tasks_metadata_store_error(db_session: AsyncSession, mocker): # No override fixture needed
+async def test_list_tasks_metadata_store_error(
+    async_test_client: httpx.AsyncClient, # Use new client fixture
+    db_session: AsyncSession,
+    mocker
+):
     """
     Test listing failure when metadata store raises an exception (simulated DB error).
     """
     # Arrange
     error_message = "Simulated failed to query tasks"
-    # Patch the SqlMetadataStore's list_tasks method directly
-    mocker.patch("ops_core.dependencies.SqlMetadataStore.list_tasks", side_effect=Exception(error_message))
-    await db_session.close() # Close session before API call
+    # Patch the list_tasks method on the SqlMetadataStore class used by the dependency override
+    mocker.patch("ops_core.metadata.sql_store.SqlMetadataStore.list_tasks", side_effect=Exception(error_message), autospec=True)
+    # No need to close session
 
     # Act
-    response = client.get("/api/v1/tasks/")
+    response = await async_test_client.get("/api/v1/tasks/") # Use await
 
     # Assert
     assert response.status_code == 500
@@ -243,7 +307,9 @@ async def test_list_tasks_metadata_store_error(db_session: AsyncSession, mocker)
 # --- Input Validation Tests ---
 
 # These tests don't interact with the store/scheduler, so they don't need db_session or overrides
-def test_create_task_missing_task_type():
+# They can use the async client, but don't strictly need to be async tests
+@pytest.mark.asyncio
+async def test_create_task_missing_task_type(async_test_client: httpx.AsyncClient):
     """
     Test task creation with missing 'task_type' field.
     """
@@ -251,7 +317,7 @@ def test_create_task_missing_task_type():
     invalid_task_data = {"input_data": {"prompt": "hello"}} # Missing task_type
 
     # Act
-    response = client.post("/api/v1/tasks/", json=invalid_task_data)
+    response = await async_test_client.post("/api/v1/tasks/", json=invalid_task_data) # Use await
 
     # Assert
     assert response.status_code == 422 # Unprocessable Entity
@@ -259,8 +325,8 @@ def test_create_task_missing_task_type():
     assert "detail" in response_data
     assert any(err["msg"] == "Field required" and "task_type" in err["loc"] for err in response_data["detail"])
 
-
-def test_create_task_invalid_input_data_type():
+@pytest.mark.asyncio
+async def test_create_task_invalid_input_data_type(async_test_client: httpx.AsyncClient):
     """
     Test task creation with invalid type for 'input_data' (should be dict).
     """
@@ -268,7 +334,7 @@ def test_create_task_invalid_input_data_type():
     invalid_task_data = {"task_type": "agent_run", "input_data": "not_a_dictionary"}
 
     # Act
-    response = client.post("/api/v1/tasks/", json=invalid_task_data)
+    response = await async_test_client.post("/api/v1/tasks/", json=invalid_task_data) # Use await
 
     # Assert
     assert response.status_code == 422 # Unprocessable Entity

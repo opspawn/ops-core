@@ -6,9 +6,11 @@ import asyncio
 import pytest
 import pytest_asyncio
 from unittest.mock import patch, AsyncMock, MagicMock
+import httpx # Import httpx
 
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
+# Remove TestClient import
+# from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 # Explicitly import required gRPC submodules
@@ -45,8 +47,8 @@ async def mock_scheduler( # Renaming to real_scheduler_mock_client might be clea
     mock_mcp_client: MagicMock
 ) -> InMemoryScheduler:
     """Provides an InMemoryScheduler with a real SqlMetadataStore and mocked MCP client."""
-    # Create real store instance
-    sql_store = SqlMetadataStore() # No session needed in constructor
+    # Create real store instance, passing the test session
+    sql_store = SqlMetadataStore(session=db_session) # Pass the session
     scheduler = InMemoryScheduler(
         metadata_store=sql_store, # Use real store
         mcp_client=mock_mcp_client
@@ -57,29 +59,36 @@ async def mock_scheduler( # Renaming to real_scheduler_mock_client might be clea
     # The store is already set correctly in __init__
     return scheduler
 
-@pytest.fixture
-def test_client(
+@pytest_asyncio.fixture # Add async fixture decorator
+async def test_client( # Change to async def
     db_session: AsyncSession, # Inject db_session
     mock_scheduler: InMemoryScheduler, # Keep using the updated mock_scheduler fixture
     mock_mcp_client: MagicMock
-) -> TestClient:
-    """Provides a FastAPI TestClient with overridden dependencies (real store via db_session)."""
+) -> httpx.AsyncClient: # Change return type hint
+    """Provides an httpx.AsyncClient with overridden dependencies (real store via db_session)."""
     # Override get_db_session to provide the test session
     # Need to import the original functions to override them
     from ops_core.dependencies import get_db_session as original_get_db_session
     from ops_core.dependencies import get_scheduler as original_get_scheduler
     from ops_core.dependencies import get_mcp_client as original_get_mcp_client
+    from ops_core.dependencies import get_metadata_store as original_get_metadata_store # Import original store getter
 
     fastapi_app.dependency_overrides[original_get_db_session] = lambda: db_session
     # Override scheduler and mcp client
     fastapi_app.dependency_overrides[original_get_scheduler] = lambda: mock_scheduler
     fastapi_app.dependency_overrides[original_get_mcp_client] = lambda: mock_mcp_client
-    # Do NOT override get_metadata_store directly, let it use the overridden get_db_session
+    # Explicitly override get_metadata_store to use the test session
+    # This ensures the store used by API endpoints gets the correct session
+    # Note: We need to create the store instance here to capture db_session
+    sql_store_for_api = SqlMetadataStore(session=db_session)
+    fastapi_app.dependency_overrides[original_get_metadata_store] = lambda: sql_store_for_api
 
-    client = TestClient(fastapi_app)
-    yield client # Use yield to ensure proper teardown if needed
+    # Use httpx.AsyncClient with ASGITransport
+    transport = httpx.ASGITransport(app=fastapi_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        yield client # Use yield to ensure proper teardown if needed
 
-    # Clean up overrides after test
+    # Clean up overrides after test (happens automatically when fixture scope ends)
     fastapi_app.dependency_overrides = {}
 
 
@@ -89,11 +98,11 @@ async def grpc_server(
     db_session: AsyncSession # Inject db_session
 ):
     """Starts an in-process gRPC server for testing with real store."""
-    # Create real store instance
-    sql_store = SqlMetadataStore() # No session needed in constructor
+    # Create real store instance, passing the test session
+    sql_store = SqlMetadataStore(session=db_session) # Pass the session
     server = grpc_aio.server()
     tasks_pb2_grpc.add_TaskServiceServicer_to_server(
-        # Inject mock scheduler and real store into servicer
+        # Inject mock scheduler and store (with correct session) into servicer
         TaskServicer(scheduler=mock_scheduler, metadata_store=sql_store),
         server
     )
@@ -117,7 +126,7 @@ async def grpc_client(grpc_server: str):
 @patch('ops_core.scheduler.engine.execute_agent_task_actor') # Patch actor for submit tests
 async def test_rest_api_submit_non_agent_task(
     mock_actor: MagicMock, # Add mock actor arg
-    test_client: TestClient, # Uses updated fixture with real store via db_session override
+    test_client: httpx.AsyncClient, # Update type hint
     mock_scheduler: InMemoryScheduler, # Keep mock scheduler
     db_session: AsyncSession # Inject session for verification
     # Removed mock_metadata_store argument
@@ -128,7 +137,8 @@ async def test_rest_api_submit_non_agent_task(
     # Mock the scheduler's submit_task to check it's called correctly
     mock_scheduler.submit_task = AsyncMock(wraps=mock_scheduler.submit_task)
 
-    response = test_client.post("/api/v1/tasks/", json=task_data)
+    # Use await with httpx.AsyncClient
+    response = await test_client.post("/api/v1/tasks/", json=task_data)
 
     assert response.status_code == 201
     response_json = response.json()
@@ -160,7 +170,7 @@ async def test_rest_api_submit_non_agent_task(
 @patch('ops_core.scheduler.engine.execute_agent_task_actor') # Patch actor for submit tests
 async def test_rest_api_submit_agent_task(
     mock_actor: MagicMock, # Add mock actor arg
-    test_client: TestClient, # Uses updated fixture
+    test_client: httpx.AsyncClient, # Update type hint
     mock_scheduler: InMemoryScheduler, # Keep mock scheduler
     db_session: AsyncSession, # Inject session for verification
     # Removed mock_metadata_store argument
@@ -180,7 +190,8 @@ async def test_rest_api_submit_agent_task(
 
     # Mock Agent being available within the scheduler's context for this test
     with patch('ops_core.scheduler.engine.Agent', new=MagicMock()):
-        response = test_client.post("/api/v1/tasks/", json=task_data)
+        # Use await with httpx.AsyncClient
+        response = await test_client.post("/api/v1/tasks/", json=task_data)
 
     assert response.status_code == 201
     response_json = response.json()

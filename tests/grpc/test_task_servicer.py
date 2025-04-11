@@ -41,8 +41,8 @@ def task_servicer(
     db_session: AsyncSession # Inject db session
 ) -> TaskServicer:
     """Provides an instance of TaskServicer with a mocked scheduler and real SqlMetadataStore."""
-    # Create real store instance
-    sql_store = SqlMetadataStore() # No session needed in constructor
+    # Create real store instance, passing the test session
+    sql_store = SqlMetadataStore(session=db_session) # Pass the session
     # Inject mock scheduler and real store
     return TaskServicer(scheduler=mock_scheduler, metadata_store=sql_store)
 
@@ -207,8 +207,8 @@ async def test_get_task_metadata_store_error(
 
     request = tasks_pb2.GetTaskRequest(task_id=task_id)
     error_message = "Simulated DB connection lost"
-    # Patch the session's execute method to raise error
-    mocker.patch.object(db_session, "execute", side_effect=Exception(error_message))
+    # Patch the store's get_task method directly on the servicer instance
+    mocker.patch.object(task_servicer._metadata_store, "get_task", side_effect=Exception(error_message))
 
     # Act
     await task_servicer.GetTask(request, mock_grpc_context)
@@ -314,8 +314,8 @@ async def test_list_tasks_metadata_store_error(
     # Arrange
     request = tasks_pb2.ListTasksRequest()
     error_message = "Simulated query failed"
-    # Patch the session's execute method to raise error
-    mocker.patch.object(db_session, "execute", side_effect=Exception(error_message))
+    # Patch the store's list_tasks method directly on the servicer instance
+    mocker.patch.object(task_servicer._metadata_store, "list_tasks", side_effect=Exception(error_message))
 
     # Act
     await task_servicer.ListTasks(request, mock_grpc_context)
