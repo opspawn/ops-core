@@ -1,44 +1,44 @@
 # Active Context: Ops-Core Python Module (End of Session - 2025-04-17)
 
 ## 1. Current Work Focus
-- **Completed:** Phase 1 (Initialization & Research) and initial implementation of Phase 2 (Core Module Development).
-- **Focus:** Establishing project structure, implementing foundational components (logging, storage, API endpoint, lifecycle functions, workflow functions).
+- **Completed:** Phase 1 (Initialization & Research), Phase 2 foundational components (Lifecycle, Workflow, Storage, Logging, Models, API state endpoint), Task 2.4 (Session Tracking), Task 2.7 (Error Handling Placeholders), AgentKit Client Placeholder, Dispatcher Connection, Task 4.1 (Initial Unit Tests).
+- **Focus:** Implementing core features and establishing initial test coverage.
 
 ## 2. Recent Changes & Decisions (This Session)
-- **Memory Bank:** Initialized all core memory bank files (`projectbrief.md`, `productContext.md`, `systemPatterns.md`, `techContext.md`, `activeContext.md`, `progress.md`).
-- **Project Structure:** Created `opscore/` package, `tests/` dir, `requirements.txt`, `Dockerfile`, `docker-compose.yml`, `.env`, `.gitignore`.
-- **Core Modules:** Created placeholder files (`api.py`, `lifecycle.py`, `workflow.py`, `storage.py`, `models.py`, `logging_config.py`).
-- **Logging:** Implemented structured JSON logging and integrated into core modules.
-- **API:** Implemented `/health` and `/v1/opscore/agent/{agentId}/state` endpoints in `api.py` using FastAPI, including API key auth and connection to `lifecycle.set_state`.
-- **Models:** Defined initial Pydantic models in `models.py`.
-- **Storage:** Implemented in-memory storage abstraction in `storage.py`.
-- **Lifecycle:** Implemented `register_agent`, `set_state`, `get_state` in `lifecycle.py` using storage/models.
-- **Workflow:** Implemented `load_workflow_template`, `create_workflow`, `get_workflow_definition`, `enqueue_task`, `dequeue_task`, `dispatch_task`, `process_next_task` in `workflow.py` using storage/models and in-memory queue.
-- **Dependencies:** Added `PyYAML` to `requirements.txt`.
+- **Lifecycle:** Implemented `start_session`, `update_session`, `get_session` in `lifecycle.py` (Task 2.4). Refactored existing functions to use models consistently.
+- **Workflow:** Updated error handling placeholders (`handle_task_failure`, `retry_task`, `fallback_task`) in `workflow.py` (Task 2.7). Connected `dispatch_task` to the AgentKit client placeholder and made relevant functions async. Refactored `create_workflow` and `get_workflow_definition` for model/storage consistency.
+- **AgentKit Client:** Created placeholder `opscore/agentkit_client.py` with async functions for dispatching tasks and getting agent info.
+- **API:** Implemented workflow trigger endpoint (`POST /v1/opscore/agent/{agentId}/workflow`) in `api.py` (completing Task 2.11).
+- **Models:** Added `WorkflowTriggerRequest`, `WorkflowTriggerResponse`. Updated `WorkflowSession`, `AgentInfo`, `AgentState`, `Task` models with timezone-aware datetime defaults. Added `model_validator` to `WorkflowTriggerRequest`.
+- **Storage:** Refactored storage functions to consistently use and return Pydantic models. Implemented `create_session`, `read_session`, `update_session_data`, `delete_session`. Updated datetime usage.
+- **Testing:** Added `pytest-asyncio`, `pytest-mock`, `pytest-cov` to `requirements.txt`. Created `tests/conftest.py` with fixtures. Implemented initial unit tests for `storage`, `lifecycle`, and `workflow` modules in `tests/` directory (Task 4.1). Fixed test failures and deprecation warnings. Added 80% coverage goal to `unit_testing_plan.md`.
+- **Environment:** Created `.venv` and installed dependencies.
 
 ## 3. Next Steps (Next Session)
-- **Implement Remaining Lifecycle Functions:** Implement `start_session`, `update_session`, `get_session` in `opscore/lifecycle.py` using storage/models (Task 2.4).
-- **Implement Workflow Error Handling:** Implement `handle_task_failure`, `retry_task`, `fallback_task` placeholders in `opscore/workflow.py` (Task 2.7).
-- **Implement AgentKit Client (Placeholder):** Create a basic structure/interface for interacting with the AgentKit API (e.g., `opscore/agentkit_client.py`).
-- **Connect Dispatcher:** Connect `opscore/workflow.py:dispatch_task` to the AgentKit client placeholder.
-- **Unit Tests:** Begin writing initial unit tests (pytest) for the implemented functions, starting with `storage.py` and `lifecycle.py` (Task 4.1).
+- **Improve Test Coverage:** Focus on increasing test coverage for `lifecycle.py` (currently 76%) to meet the 80% goal. Analyze missing lines from coverage report and add targeted tests. (Part of Task 4.1 refinement).
+- **API Testing:** Implement unit/integration tests for the API endpoints in `api.py` using `TestClient` (Part of Task 4.2 or refinement of 4.1).
+- **Implement Agent State Check:** Implement the agent state check logic in `workflow.process_next_task` (currently bypassed).
+- **Implement Custom Exceptions:** Define and use custom exceptions (`exceptions.py`) for better error handling.
+- **Refine Workflow Definition:** Define and validate the schema for `WorkflowDefinition.tasks` more strictly in `models.py`.
 
 ## 4. Active Decisions & Considerations
-- **AgentKit Endpoint Dependency:** `GET /v1/agents` endpoint confirmation still pending.
-- **Workflow Template Schema:** Need to define and validate the structure of workflow templates (using `models.WorkflowDefinition`).
-- **Persistent Queue:** The task queue (`_task_queue` in `workflow.py`) is currently in-memory and needs replacement with a persistent solution later.
-- **Error Handling:** Need to define and implement custom exceptions (`exceptions.py`).
-- **Agent State Check:** The agent state check before dispatching in `process_next_task` is currently bypassed and needs implementation once `lifecycle.get_state` is fully reliable.
+- **Test Coverage:** `lifecycle.py` coverage (76%) is slightly below the 80% target. Overall coverage (71%) needs improvement, primarily by testing `api.py`.
+- **AgentKit Endpoint Dependency:** `GET /v1/agents` endpoint confirmation still pending for full AgentKit integration.
+- **Persistent Queue:** The task queue (`_task_queue` in `workflow.py`) remains in-memory.
+- **Error Handling:** Placeholder error handling needs to be made more robust. Custom exceptions are needed.
+- **Agent State Check:** Still bypassed in `process_next_task`.
 
 ## 5. Important Patterns & Preferences
 - Continue following Python best practices (PEP8, type hints).
 - Use FastAPI conventions.
 - Maintain modularity.
 - Ensure comprehensive logging.
-- Write unit tests for new logic.
+- Write unit tests for new logic and improve coverage for existing logic.
+- Use timezone-aware datetimes (`datetime.now(timezone.utc)`).
 
 ## 6. Learnings & Project Insights
-- Foundational structure is in place.
-- Core data flow for state updates (API -> Lifecycle -> Storage) is established.
-- Basic workflow definition loading and task queuing implemented.
-- Need to prioritize unit testing alongside further implementation.
+- Core lifecycle and workflow functions are implemented with initial test coverage.
+- API endpoints for core interactions are defined.
+- Refactoring storage and lifecycle layers to use Pydantic models improved consistency.
+- Careful attention to dependencies (like `pytest-cov`) and virtual environments is crucial.
+- Mocking and async testing patterns established.

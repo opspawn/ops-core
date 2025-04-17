@@ -5,11 +5,12 @@ Handles agent registration, state tracking, and session management.
 """
 
 import uuid # Import uuid module
-from datetime import datetime
-from typing import Dict, Any, Optional
+from datetime import datetime, timezone # Import timezone
+from typing import Dict, Any, Optional, List
 
 # Placeholder imports - replace with actual implementations
-from . import storage, models # Import storage and models
+from . import storage
+from .models import AgentInfo, AgentRegistrationDetails, AgentState, WorkflowSession, SessionUpdate
 # from . import exceptions # TODO: Define custom exceptions later
 from .logging_config import get_logger
 
@@ -17,48 +18,45 @@ logger = get_logger(__name__)
 
 # --- Agent Registration ---
 
-def register_agent(agent_details: Dict[str, Any]) -> str:
+def register_agent(agent_details: AgentRegistrationDetails) -> AgentInfo:
     """
     Registers a new agent with Ops-Core.
 
     Args:
-        agent_details: Dictionary containing agent metadata (e.g., name, capabilities, contactEndpoint).
+        agent_details: Pydantic model containing agent metadata.
 
     Returns:
-        The unique agent ID assigned to the registered agent.
+        The AgentInfo object representing the registered agent.
 
     Raises:
+        ValueError: If agent_details are invalid (handled by Pydantic).
+        IOError: If storage fails.
         # exceptions.RegistrationError: If registration fails.
     """
-    logger.info(f"Attempting to register agent: {agent_details.get('agentName', 'N/A')}")
+    agent_name = agent_details.agentName
+    logger.info(f"Attempting to register agent: {agent_name}")
+
     # Generate a unique agent ID
     agent_id = f"agent_{uuid.uuid4()}"
 
-    # Validate agent_details against the Pydantic model
-    try:
-        # We expect the input details to match AgentRegistrationDetails
-        validated_details = models.AgentRegistrationDetails(**agent_details)
-    except Exception as e: # Catch Pydantic validation errors
-        logger.error(f"Invalid agent registration details provided: {e}", exc_info=True)
-        raise ValueError(f"Invalid agent registration details: {e}")
-
     # Create the full AgentInfo object including generated ID and timestamp
-    registration_data = models.AgentInfo(
-        **validated_details.model_dump(),
+    # Pydantic validation happens implicitly if agent_details is already the correct type
+    agent_info = AgentInfo(
+        **agent_details.model_dump(),
         agentId=agent_id,
-        registrationTime=datetime.utcnow()
+        registrationTime=datetime.now(timezone.utc) # Use timezone-aware
     )
 
     # Store agent registration data using the storage module
     try:
-        storage.save_agent_registration(agent_id, registration_data.model_dump())
-        logger.info(f"Agent '{validated_details.agentName}' registered successfully with ID: {agent_id}")
+        storage.save_agent_registration(agent_info)
+        logger.info(f"Agent '{agent_name}' registered successfully with ID: {agent_id}")
     except Exception as e:
         logger.error(f"Failed to save registration for agent {agent_id}: {e}", exc_info=True)
         # TODO: Define a specific registration/storage exception?
-        raise IOError(f"Failed to save registration for agent {agent_id}")
+        raise IOError(f"Failed to save registration for agent {agent_id}") from e
 
-    return agent_id
+    return agent_info
 
 # --- State Management ---
 
@@ -77,8 +75,8 @@ def set_state(agent_id: str, new_state: str, details: Optional[Dict[str, Any]] =
         # exceptions.InvalidStateError: If the new_state is not a valid state.
     """
     logger.info(f"Setting state for agent {agent_id} to '{new_state}'")
-    # Validate agent_id exists using storage module
-    if not storage.agent_exists(agent_id):
+    # Validate agent_id exists using storage module (read operation)
+    if not storage.read_agent_registration(agent_id):
         logger.error(f"Attempted to set state for unknown agent ID: {agent_id}")
         # raise exceptions.AgentNotFoundError(agent_id) # TODO: Use custom exception
         raise ValueError(f"Agent not found: {agent_id}")
@@ -86,7 +84,7 @@ def set_state(agent_id: str, new_state: str, details: Optional[Dict[str, Any]] =
     # TODO: Validate new_state against allowed states (defined in models?)
 
     # TODO: Parse timestamp string to datetime object if provided
-    state_timestamp = datetime.utcnow() # Default to now
+    state_timestamp = datetime.now(timezone.utc) # Default to now (timezone-aware)
     if timestamp:
         try:
             # Attempt to parse timestamp, fallback to now if invalid
@@ -98,7 +96,7 @@ def set_state(agent_id: str, new_state: str, details: Optional[Dict[str, Any]] =
 
     # Create state update object using the Pydantic model
     try:
-        state_data = models.AgentState(
+        agent_state = AgentState(
             agentId=agent_id,
             state=new_state,
             details=details,
@@ -106,22 +104,19 @@ def set_state(agent_id: str, new_state: str, details: Optional[Dict[str, Any]] =
         )
     except Exception as e: # Catch potential Pydantic validation errors
         logger.error(f"Failed to create AgentState model for agent {agent_id}: {e}", exc_info=True)
-        raise ValueError(f"Invalid state data provided: {e}")
+        raise ValueError(f"Invalid state data provided: {e}") from e
 
     # Store the state update using the storage module
     try:
-        # Use .model_dump() for Pydantic v2+
-        storage.save_agent_state(agent_id, state_data.model_dump())
+        storage.save_agent_state(agent_state)
         logger.info(f"State for agent {agent_id} updated to '{new_state}'")
     except Exception as e:
         logger.error(f"Failed to save state for agent {agent_id} to storage: {e}", exc_info=True)
         # TODO: Define a specific storage exception?
-        raise IOError(f"Failed to save state for agent {agent_id}")
-
-    # print(f"Placeholder: Set state for {agent_id} to {new_state} at {timestamp or 'now'} with details: {details}") # Placeholder print
+        raise IOError(f"Failed to save state for agent {agent_id}") from e
 
 
-def get_state(agent_id: str) -> Optional[Dict[str, Any]]:
+def get_state(agent_id: str) -> Optional[AgentState]:
     """
     Retrieves the current state of a registered agent.
 
@@ -129,24 +124,22 @@ def get_state(agent_id: str) -> Optional[Dict[str, Any]]:
         agent_id: The ID of the agent.
 
     Returns:
-        A dictionary representing the agent's current state (e.g., from models.AgentState),
+        An AgentState object representing the agent's current state,
         or None if the agent or state is not found.
     """
     logger.debug(f"Fetching state for agent {agent_id}")
     # Retrieve state from storage module
-    state_data = storage.get_latest_agent_state(agent_id)
-    if state_data:
-        # TODO: Consider returning a Pydantic model (models.AgentState) instead of dict?
-        logger.debug(f"Found state for agent {agent_id}: {state_data.get('state')}")
-        return state_data
+    agent_state = storage.read_latest_agent_state(agent_id)
+    if agent_state:
+        logger.debug(f"Found state for agent {agent_id}: {agent_state.state}")
+        return agent_state
     else:
         logger.warning(f"No state found for agent {agent_id}")
         return None
-    # return {"agentId": agent_id, "state": "unknown", "timestamp": datetime.utcnow().isoformat()} # Placeholder return
 
 # --- Session Management ---
 
-def start_session(agent_id: str, workflow_id: str) -> str:
+def start_session(agent_id: str, workflow_id: str) -> WorkflowSession:
     """
     Starts a new workflow session for an agent.
 
@@ -155,70 +148,100 @@ def start_session(agent_id: str, workflow_id: str) -> str:
         workflow_id: The ID of the workflow being executed.
 
     Returns:
-        The unique session ID created for this workflow execution.
+        The created WorkflowSession object.
 
     Raises:
+        ValueError: If the agent_id is not found or session creation fails.
+        IOError: If storage fails.
         # exceptions.AgentNotFoundError: If the agent_id is not found.
     """
-    logger.info(f"Starting new session for agent {agent_id}, workflow {workflow_id}")
-    # TODO: Validate agent_id exists
+    logger.info(f"Attempting to start new session for agent {agent_id}, workflow {workflow_id}")
 
-    session_id = f"session_{datetime.now().strftime('%Y%m%d%H%M%S%f')}" # Simple placeholder ID
-    start_time = datetime.utcnow()
+    # Validate agent_id exists
+    if not storage.read_agent_registration(agent_id):
+        logger.error(f"Cannot start session: Agent {agent_id} not found.")
+        raise ValueError(f"Agent not found: {agent_id}")
 
-    # TODO: Create session object (models.WorkflowSession)
-    # session_data = models.WorkflowSession(
-    #     sessionId=session_id,
-    #     agentId=agent_id,
-    #     workflowId=workflow_id,
-    #     startTime=start_time,
-    #     status="started" # Initial status
-    # )
+    # Create session object (generates its own ID and timestamps)
+    try:
+        session = WorkflowSession(
+            agentId=agent_id,
+            workflowId=workflow_id,
+            # sessionId, startTime, last_updated_time, status are handled by model defaults
+        )
+    except Exception as e: # Should not happen with these args, but good practice
+        logger.error(f"Failed to create WorkflowSession model: {e}", exc_info=True)
+        raise ValueError(f"Failed to initialize session object: {e}") from e
 
-    # TODO: Store session data using storage module
-    # storage.save_session(session_id, session_data.dict())
-    logger.info(f"Session {session_id} started for agent {agent_id}, workflow {workflow_id}") # Placeholder logic
+    # Store session data using storage module
+    try:
+        storage.create_session(session)
+        logger.info(f"Session {session.sessionId} started successfully for agent {agent_id}, workflow {workflow_id}")
+    except ValueError as e: # Catch potential duplicate ID error from storage
+        logger.error(f"Failed to create session in storage: {e}", exc_info=True)
+        raise ValueError(f"Failed to create session: {e}") from e
+    except Exception as e:
+        logger.error(f"Failed to save session {session.sessionId} to storage: {e}", exc_info=True)
+        raise IOError(f"Failed to save session {session.sessionId}") from e
 
-    # print(f"Placeholder: Started session {session_id} for agent {agent_id}, workflow {workflow_id}") # Placeholder print
-    return session_id
+    return session
 
-def update_session(agent_id: str, session_id: str, changes: Dict[str, Any]):
+def update_session(session_id: str, update_payload: SessionUpdate) -> WorkflowSession:
     """
-    Updates an existing workflow session.
+    Updates an existing workflow session using provided data.
 
     Args:
-        agent_id: The ID of the agent (for verification).
         session_id: The ID of the session to update.
-        changes: A dictionary containing updates (e.g., {"status": "completed", "endTime": ..., "result": ...}).
+        update_payload: A SessionUpdate Pydantic model containing the fields to update.
+
+    Returns:
+        The updated WorkflowSession object.
 
     Raises:
+        ValueError: If the session_id is not found or update data is invalid.
+        IOError: If storage fails.
         # exceptions.SessionNotFoundError: If the session_id is not found.
-        # exceptions.AuthorizationError: If the agent_id doesn't match the session's agent.
     """
-    logger.info(f"Updating session {session_id} for agent {agent_id} with changes: {changes}")
-    # TODO: Retrieve session data from storage
-    # session_data = storage.get_session(session_id)
-    # if not session_data:
-    #     logger.error(f"Attempted to update unknown session ID: {session_id}")
-    #     raise exceptions.SessionNotFoundError(session_id)
+    logger.info(f"Attempting to update session {session_id}")
 
-    # TODO: Verify agent_id matches session_data['agentId']
-    # if session_data['agentId'] != agent_id:
-    #     logger.error(f"Agent {agent_id} attempted to update session {session_id} belonging to agent {session_data['agentId']}")
-    #     raise exceptions.AuthorizationError("Agent ID does not match session owner")
+    # Prepare update dictionary, only including fields explicitly set in the payload
+    update_dict = update_payload.model_dump(exclude_unset=True)
 
-    # TODO: Apply changes to session_data
-    # session_data.update(changes)
-    # if 'endTime' not in changes and changes.get('status') in ['completed', 'failed', 'cancelled']:
-    #     session_data['endTime'] = datetime.utcnow()
+    if not update_dict:
+        logger.warning(f"Update called for session {session_id} with no changes provided.")
+        # Optionally return the existing session without hitting storage
+        existing_session = storage.read_session(session_id)
+        if not existing_session:
+             raise ValueError(f"Session not found: {session_id}")
+        return existing_session
 
-    # TODO: Save updated session data back to storage
-    # storage.save_session(session_id, session_data)
-    logger.info(f"Session {session_id} updated successfully.") # Placeholder logic
 
-    # print(f"Placeholder: Updated session {session_id} with changes: {changes}") # Placeholder print
+    # Always update the last_updated_time
+    update_dict['last_updated_time'] = datetime.now(timezone.utc) # Use timezone-aware
 
-def get_session(session_id: str) -> Optional[Dict[str, Any]]:
+    # If status is changing to a terminal state, set endTime if not already set
+    if 'status' in update_dict and update_dict['status'] in ['completed', 'failed', 'cancelled']:
+        if 'endTime' not in update_dict: # Only set if not explicitly provided
+            update_dict['endTime'] = datetime.now(timezone.utc) # Use timezone-aware
+
+    logger.debug(f"Applying updates to session {session_id}: {update_dict}")
+
+    try:
+        updated_session = storage.update_session_data(session_id, update_dict)
+        logger.info(f"Session {session_id} updated successfully.")
+        return updated_session
+    except KeyError: # Raised by storage.update_session_data if session_id not found
+        logger.error(f"Update failed: Session {session_id} not found.")
+        raise ValueError(f"Session not found: {session_id}")
+    except ValueError as e: # Raised by storage.update_session_data for invalid data
+        logger.error(f"Update failed for session {session_id} due to invalid data: {e}", exc_info=True)
+        raise ValueError(f"Invalid update data for session {session_id}: {e}") from e
+    except Exception as e:
+        logger.error(f"Failed to update session {session_id} in storage: {e}", exc_info=True)
+        raise IOError(f"Failed to update session {session_id}") from e
+
+
+def get_session(session_id: str) -> Optional[WorkflowSession]:
     """
     Retrieves details of a specific workflow session.
 
@@ -226,16 +249,12 @@ def get_session(session_id: str) -> Optional[Dict[str, Any]]:
         session_id: The ID of the session.
 
     Returns:
-        A dictionary representing the session data, or None if not found.
+        A WorkflowSession object representing the session data, or None if not found.
     """
-    # logger.debug(f"Fetching session details for {session_id}")
-    # TODO: Retrieve session from storage module
-    # session_data = storage.get_session(session_id)
-    # if session_data:
-    #     logger.debug(f"Found session {session_id}")
-    #     return session_data
-    # else:
-    #     logger.warning(f"No session found for ID: {session_id}")
-    #     return None
-    # print(f"Placeholder: Get session {session_id}") # Placeholder print
-    return {"sessionId": session_id, "status": "unknown"} # Placeholder return
+    logger.debug(f"Fetching session details for {session_id}")
+    session = storage.read_session(session_id)
+    if session:
+        logger.debug(f"Found session {session_id}")
+    else:
+        logger.warning(f"No session found for ID: {session_id}")
+    return session

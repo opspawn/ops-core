@@ -1,35 +1,53 @@
 # Progress: Ops-Core Python Module
 
 ## 1. What Works (Current Status)
-- **Project Setup:** The `ops-core` workspace is active.
-- **Planning Context:** All initial planning documents (`DevelopmentSummary.md`, `PLANNING.md`, `TASK.md`, `agentkit_integration_for_opscore.md`) have been reviewed.
-- **Memory Bank:** The core memory bank files (`projectbrief.md`, `productContext.md`, `systemPatterns.md`, `techContext.md`, `activeContext.md`, `progress.md`) have been initialized based on the planning documents.
-- **Technology Selection:** FastAPI confirmed as the web framework.
-- **Initial Plan:** A detailed plan for Phase 1 (Setup) and the start of Phase 2 (Core Implementation) has been agreed upon.
+- **Project Setup:** The `ops-core` workspace is active. Virtual environment (`.venv`) created and dependencies installed.
+- **Planning Context:** All initial planning documents reviewed. Memory bank initialized. Unit testing plan created.
+- **Technology Selection:** FastAPI confirmed. Pytest configured with asyncio, mock, and cov plugins.
+- **Core Modules Implemented:**
+    - Storage (`storage.py`): In-memory implementation using models, thread-safe. (91% test coverage)
+    - Lifecycle (`lifecycle.py`): Agent registration, state management, session tracking implemented using models. (76% test coverage)
+    - Workflow (`workflow.py`): Definition loading, task queuing (in-memory), placeholder dispatching (async, connected to client), placeholder error handling implemented. (89% test coverage)
+    - Logging (`logging_config.py`): Structured JSON logging configured. (71% test coverage)
+    - Models (`models.py`): Core Pydantic models defined and used. (93% test coverage)
+    - AgentKit Client (`agentkit_client.py`): Placeholder created. (47% test coverage)
+- **API Endpoints (`api.py`):** `/health`, `/v1/opscore/agent/{agentId}/state`, `/v1/opscore/agent/{agentId}/workflow` implemented. (0% test coverage)
+- **Unit Tests:** Initial test suite implemented for storage, lifecycle, and workflow modules using pytest. All 57 tests passing.
 
-## 2. What's Left to Build (Immediate Next Steps)
-- **Phase 1 Tasks (from `TASK.md`): COMPLETE**
-    - [X] Task 1.1: Set up Git repository structure (Assuming repo exists, focus on internal structure). (Covered by creating `opscore/`, `tests/`, `.gitignore`)
-    - [X] Task 1.2: Configure local Python development environment (`venv`, `requirements.txt`). (Created `requirements.txt`, `venv` is user responsibility)
-    - [X] Task 1.3: Create initial `Dockerfile` and `docker-compose.yml`.
-    - [X] Task 1.4: (Covered by initial review) Extract Python-specific requirements.
-    - [X] Task 1.5: (Covered by initial review & decision) Document and confirm tech stack.
-    - [X] Create placeholder Python files for core modules within `opscore/`. (Created `api.py`, `lifecycle.py`, `workflow.py`, `logging_config.py`, `storage.py`, `models.py`)
-    - [X] Created `.env` placeholder.
-- **Phase 2 Tasks (Initial):**
-    - [X] Implement basic in-memory storage (`storage.py`). (Placeholder exists, logger integrated)
-    - [X] Implement foundational Lifecycle Management functions (`lifecycle.py`). (`register_agent`, `set_state`, `get_state` implemented using storage/models)
-    - [X] Implement foundational Workflow Sequencing functions (`workflow.py`). (Implemented: `load_template`, `create`, `get_def`, `enqueue`, `dequeue`, `dispatch`, `process_next`)
-    - [X] Configure basic structured logging (`logging_config.py`). (Created and integrated into core modules)
-    - [X] Set up FastAPI app and implement the state update endpoint (`api.py`). (Implemented, connected to `lifecycle.set_state`, uses models, logging integrated)
+## 2. What's Left to Build (Immediate Next Steps from `TASK.md`)
+- **Phase 2 Tasks:**
+    - [ ] Task 2.9: Develop a basic CLI or web dashboard for real‑time log inspection and filtering.
+    - [ ] Task 2.10: Incorporate performance tracing methods like `startTrace(taskId)` and `endTrace(taskId)`.
+- **Phase 3 Tasks:**
+    - [ ] Task 3.1: Integrate the Ops‑Core API endpoints with a Python SDK.
+    - [ ] Task 3.2: Create a simple CLI application to interact with Ops‑Core endpoints.
+    - [ ] Task 3.3: Implement middleware for structured logging and standardized error handling across endpoints.
+    - [ ] Task 3.4: Ensure all endpoints interoperate seamlessly with AgentKit’s integration interfaces.
+- **Phase 4 Tasks:**
+    - [X] Task 4.1: Write unit tests for each subsystem using pytest. (Initial implementation complete, coverage needs improvement for lifecycle & API).
+    - [ ] Task 4.2: Develop integration tests simulating complete workflows.
+    - [ ] Task 4.3: Set up GitHub Actions for CI/CD (testing, linting).
+    - [ ] Task 4.4: Perform performance and load testing on API endpoints.
+    - [ ] Task 4.5: Conduct User Acceptance Testing (UAT).
+- **Phase 5 Tasks:** Documentation updates (`README.md`, API docs, tutorials, config guide).
+- **Backlog:** Persistent storage/queue, advanced debugging/security, async messaging, etc.
 
 ## 3. Current Status Overview
-- **Overall:** Project initialization phase. Ready to begin coding the foundational structure.
-- **Blockers/Dependencies:** Confirmation of AgentKit's `GET /v1/agents` endpoint details is pending but not blocking initial setup.
+- **Overall:** Core functionalities for lifecycle management and workflow orchestration are implemented with initial unit tests passing. API endpoints for interaction are available. Ready for further testing, refinement, and integration steps.
+- **Blockers/Dependencies:** Confirmation of AgentKit's `GET /v1/agents` endpoint details still pending for full AgentKit integration and agent discovery features.
 
 ## 4. Known Issues
-- None at this stage.
+- Lifecycle test coverage (76%) is slightly below the 80% target.
+- API endpoints (`api.py`) lack unit/integration tests (0% coverage).
+- Task queue (`workflow._task_queue`) is still in-memory.
+- Agent state check in `workflow.process_next_task` is bypassed.
+- Error handling is basic; custom exceptions not yet implemented.
 
 ## 5. Evolution of Project Decisions
 - **[2025-04-17]** Confirmed use of FastAPI over Flask.
 - **[2025-04-17]** Initialized Memory Bank structure and content based on planning docs.
+- **[2025-04-17]** Implemented session tracking (Task 2.4).
+- **[2025-04-17]** Implemented error handling placeholders (Task 2.7).
+- **[2025-04-17]** Created AgentKit client placeholder and connected dispatcher.
+- **[2025-04-17]** Implemented workflow trigger API endpoint (Task 2.11).
+- **[2025-04-17]** Implemented initial unit tests (Task 4.1) and fixed failures/warnings. Added 80% coverage goal. Standardized on timezone-aware datetimes.

@@ -7,14 +7,15 @@ dispatching tasks to agents (via AgentKit), and error handling.
 
 import json
 import yaml
+import asyncio
 from collections import deque
 from typing import Dict, Any, Optional, List, Union
 
 # Placeholder imports - replace with actual implementations
-from . import storage, models # Import storage and models
-# from . import exceptions, lifecycle # TODO: Define custom exceptions later
+from . import storage, models, lifecycle # Import storage, models, and lifecycle
+# from . import exceptions # TODO: Define custom exceptions later
 from .logging_config import get_logger
-# from .agentkit_client import dispatch_task_to_agentkit # Assumes an AgentKit client module
+from .agentkit_client import dispatch_task_to_agentkit # Import the placeholder client function
 
 logger = get_logger(__name__)
 
@@ -80,9 +81,16 @@ def create_workflow(definition: Dict[str, Any]) -> str:
 
     logger.info(f"Creating workflow definition with ID: {workflow_id}")
 
+    # Validate and create the model instance
+    try:
+        workflow_model = models.WorkflowDefinition(**definition)
+    except Exception as e: # Catch Pydantic validation errors
+        logger.error(f"Invalid workflow definition structure provided: {e}", exc_info=True)
+        raise ValueError(f"Invalid workflow definition structure: {e}") from e
+
     # Store definition using storage module
     try:
-        storage.save_workflow_definition(workflow_id, definition)
+        storage.save_workflow_definition(workflow_model) # Pass the model instance
         logger.info(f"Workflow definition '{workflow_id}' created and saved.")
     except Exception as e:
         logger.error(f"Failed to save workflow definition {workflow_id}: {e}", exc_info=True)
@@ -103,7 +111,7 @@ def get_workflow_definition(workflow_id: str) -> Optional[Dict[str, Any]]:
     """
     logger.debug(f"Fetching workflow definition for ID: {workflow_id}")
     # Retrieve from storage module
-    definition = storage.get_workflow_definition(workflow_id)
+    definition = storage.read_workflow_definition(workflow_id) # Use read_ instead of get_
     # definition = _workflow_definitions.get(workflow_id) # In-memory placeholder REMOVED
     if definition:
         logger.debug(f"Found workflow definition {workflow_id}")
@@ -159,116 +167,137 @@ def dequeue_task() -> Optional[Dict[str, Any]]:
 
 # --- Task Dispatching ---
 
-def process_next_task():
+async def process_next_task():
     """
-    Dequeues the next task and attempts to dispatch it.
+    Dequeues the next task and attempts to dispatch it asynchronously.
     This would typically be run by a worker process or scheduler.
     """
     logger.debug("Checking for next task to process...")
     task_data = dequeue_task()
     if task_data:
-        # Ensure agent_id is present (already validated in enqueue_task, but good practice)
-        agent_id = task_data.get('agentId') # Match Pydantic model field name
+        agent_id = task_data.get('agentId')
         if not agent_id:
             logger.error(f"Dequeued task data missing 'agentId': {task_data}")
             # TODO: Handle error (e.g., move to dead-letter queue)
             return
 
         # TODO: Check agent state/availability via lifecycle module before dispatching?
-        # This requires lifecycle.get_state to be fully implemented first.
-        # current_state_info = lifecycle.get_state(agent_id)
-        # if current_state_info and current_state_info.get('state') == 'idle':
+        # current_state = await lifecycle.get_state_async(agent_id) # Assuming an async version exists
+        # if current_state and current_state.state == 'idle':
         #     logger.debug(f"Agent {agent_id} is idle. Proceeding with dispatch.")
-        #     dispatch_task(agent_id, task_data)
-        # elif current_state_info:
-        #     logger.warning(f"Agent {agent_id} is not idle (state: {current_state_info.get('state', 'unknown')}). Re-enqueuing task.")
+        #     await dispatch_task(agent_id, task_data)
+        # elif current_state:
+        #     logger.warning(f"Agent {agent_id} is not idle (state: {current_state.state}). Re-enqueuing task.")
         #     # TODO: Implement re-enqueue logic with potential delay
         #     enqueue_task(task_data) # Re-add to the end of the queue for now
-        #     return
         # else:
-        #     # Agent state unknown or agent not found, handle appropriately
         #     logger.error(f"Could not determine state for agent {agent_id}. Cannot dispatch task.")
         #     # TODO: Decide how to handle this - fail task? Re-enqueue?
-        #     return
 
         # Simple dispatch for now (bypassing state check)
         logger.debug(f"Bypassing agent state check for now. Dispatching task for agent {agent_id}.")
-        dispatch_task(agent_id, task_data)
+        try:
+            await dispatch_task(agent_id, task_data)
+        except Exception as e:
+            # Error handling is done within dispatch_task, but log here if needed
+            logger.error(f"Error occurred during dispatch process for task {task_data.get('taskId', 'Unknown')} for agent {agent_id}: {e}", exc_info=False) # Avoid double logging stack trace if handled below
     else:
         logger.debug("No tasks in queue to process.")
 
 
-def dispatch_task(agent_id: str, task_data: Dict[str, Any]):
+async def dispatch_task(agent_id: str, task_data: Dict[str, Any]):
     """
-    Dispatches a task to the specified agent via AgentKit.
+    Asynchronously dispatches a task to the specified agent via AgentKit.
 
     Args:
         agent_id: The ID of the target agent.
         task_data: The task details to send to the agent.
     """
-    # Extract task identifier for logging, default to task_id or 'Unknown Task'
-    task_identifier = task_data.get('task_name', task_data.get('taskId', 'Unknown Task'))
+    task_identifier = task_data.get('taskId', 'Unknown Task') # Use taskId from model
     logger.info(f"Dispatching task '{task_identifier}' to agent {agent_id}")
 
     # Construct payload for AgentKit's /run endpoint
     agentkit_payload = {
-        "senderId": "opscore_system_id", # Consistent ID for Ops-Core
-        "messageType": "workflow_task", # Or derive from task_data
-        "payload": task_data.get("payload", {}), # The actual task parameters/content
+        "senderId": "opscore_system_id",
+        "messageType": "workflow_task",
+        "payload": task_data.get("payload", {}),
         "sessionContext": {
-            "workflowId": task_data.get("workflow_id"),
-            "sessionId": task_data.get("session_id"),
-            "taskId": task_data.get("task_id") # Assuming tasks have unique IDs
+            "workflowId": task_data.get("workflowId"), # Match model field name
+            "sessionId": task_data.get("sessionId"),   # Match model field name
+            "taskId": task_identifier
         }
     }
 
     try:
-        # TODO: Call the AgentKit client function
-        # response = dispatch_task_to_agentkit(agent_id, agentkit_payload)
-        logger.info(f"Task dispatch acknowledged by AgentKit for agent {agent_id}. Response: {{response}}") # Placeholder response
-        # Note: AgentKit's ack doesn't mean the agent processed it. State updates are separate.
-        # TODO: Update task status in storage (e.g., "dispatched")
-    except Exception as e: # Replace with specific client exceptions
+        # Call the (placeholder) AgentKit client function
+        response = await dispatch_task_to_agentkit(agent_id, agentkit_payload)
+        logger.info(f"Task '{task_identifier}' dispatch acknowledged by AgentKit for agent {agent_id}. Response: {response}")
+        # TODO: Update task status in storage (e.g., "dispatched") based on response
+        # task_data['status'] = 'dispatched'
+        # update_task_in_storage(task_data) # Requires task persistence logic
+    except ConnectionError as e: # Catch specific errors raised by the client placeholder
+         logger.error(f"Connection error dispatching task '{task_identifier}' to agent {agent_id} via AgentKit: {e}", exc_info=True)
+         handle_task_failure(task_data, f"AgentKit Connection Error: {e}")
+    except Exception as e: # Catch other potential exceptions from client/network
         logger.error(f"Failed to dispatch task '{task_identifier}' to agent {agent_id} via AgentKit: {e}", exc_info=True)
-        # TODO: Handle dispatch failure (e.g., retry, mark task as failed, trigger fallback)
-        handle_task_failure(task_data, str(e))
+        handle_task_failure(task_data, f"Dispatch Error: {e}")
 
 
 # --- Error Handling & Retry ---
 
 def handle_task_failure(task_data: Dict[str, Any], error_message: str):
     """Handles a failed task, potentially triggering retry or fallback."""
-    # logger.warning(f"Handling failure for task {task_data.get('task_id')} (agent {task_data.get('agent_id')}): {error_message}") # Already uncommented
+    task_id = task_data.get('taskId', 'Unknown Task')
+    agent_id = task_data.get('agentId', 'Unknown Agent')
+    logger.warning(f"Handling failure for task {task_id} (agent {agent_id}): {error_message}")
     # TODO: Implement retry logic based on task definition or system policy
-    retry_count = task_data.get('retry_count', 0)
-    max_retries = task_data.get('max_retries', 3) # Get from task or workflow definition
+    retry_count = task_data.get('retryCount', 0) # Match model field name
+    max_retries = task_data.get('maxRetries', 3) # Match model field name
 
     if retry_count < max_retries:
+        logger.info(f"Attempting retry {retry_count + 1}/{max_retries} for task {task_id}")
         retry_task(task_data, retry_count + 1)
-    # else: # Already uncommented
-        # logger.error(f"Task {task_data.get('task_id')} failed after {max_retries} retries.") # Already uncommented
-        fallback_task(task_data)
+    else:
+        logger.error(f"Task {task_id} failed after maximum {max_retries} retries.")
+        fallback_task(task_data, error_message) # Pass error message to fallback
 
 def retry_task(task_data: Dict[str, Any], retry_attempt: int):
     """Re-enqueues a task for a retry attempt."""
-    # logger.info(f"Retrying task {task_data.get('task_id')} (attempt {retry_attempt})") # Already uncommented
-    task_data['retry_count'] = retry_attempt
-    # TODO: Implement delay before re-enqueuing?
+    task_id = task_data.get('taskId', 'Unknown Task')
+    logger.info(f"Retrying task {task_id} (attempt {retry_attempt})")
+    task_data['retryCount'] = retry_attempt # Update retry count
+    task_data['status'] = 'pending_retry' # Optionally update status
+    # TODO: Implement delay before re-enqueuing (e.g., exponential backoff)
     enqueue_task(task_data)
 
 
-def fallback_task(task_data: Dict[str, Any]):
+def fallback_task(task_data: Dict[str, Any], final_error: str):
     """Handles a task that has ultimately failed after retries."""
-    # logger.error(f"Executing fallback for failed task {task_data.get('task_id')}") # Already uncommented
-    # TODO: Implement fallback logic:
-    # - Mark task/session as failed in storage
-    # - Notify monitoring system
-    # - Trigger a compensating action or alternative workflow?
-    session_id = task_data.get('session_id')
-    agent_id = task_data.get('agent_id')
-    if session_id and agent_id:
-        # lifecycle.update_session(agent_id, session_id, {"status": "failed", "error": "Max retries exceeded"})
-        pass
+    task_id = task_data.get('taskId', 'Unknown Task')
+    session_id = task_data.get('sessionId')
+    agent_id = task_data.get('agentId') # Match model field name
+    logger.error(f"Executing fallback for failed task {task_id} (session: {session_id}, agent: {agent_id}). Final error: {final_error}")
+
+    # TODO: Implement more robust fallback logic:
+    # 1. Mark task as 'failed' in storage (if tasks are persisted individually)
+    # 2. Update the overall session status to 'failed' or 'partially_failed'
+    # 3. Notify monitoring system / Log detailed error context
+    # 4. Trigger a compensating action or alternative workflow if defined
+
+    if session_id:
+        logger.info(f"Attempting to mark session {session_id} as failed due to task {task_id} failure.")
+        try:
+            update_payload = models.SessionUpdate(
+                status="failed",
+                error=f"Task {task_id} failed after max retries: {final_error}"
+                # Optionally add more context to metadata if needed
+            )
+            # lifecycle.update_session(session_id, update_payload) # Keep commented until fully integrated and tested
+            logger.debug(f"Placeholder: Would call lifecycle.update_session for {session_id} with status 'failed'.")
+        except Exception as e:
+            logger.error(f"Failed to update session {session_id} status during fallback for task {task_id}: {e}", exc_info=True)
+    else:
+        logger.warning(f"Cannot update session status for failed task {task_id} as session_id is missing.")
 
 # --- Utility Functions ---
 

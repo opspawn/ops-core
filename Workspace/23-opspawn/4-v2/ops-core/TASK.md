@@ -25,15 +25,15 @@ This TASK.md document provides a detailed, step-by-step checklist for developing
 - [X] **Task 2.1:** Design and implement a Python function for registering agents. (`opscore/lifecycle.py:register_agent` implemented with UUID, model validation, storage call)
   - *Example Functions:* `registerAgent(agentDetails)` to store metadata and generate a unique agent ID.
 - [X] **Task 2.2:** Develop state management functions such as `setState(agentId, newState, details)` and `getState(agentId)`. (`opscore/lifecycle.py:set_state`, `get_state` implemented with storage call)
-- [X] **Task 2.3:** Integrate an in‑memory storage solution (`opscore/storage.py` implemented with dicts and locks).
-- [ ] **Task 2.4:** Implement session and workflow tracking (e.g., `startSession(agentId, workflowId)` and `updateSession(agentId, sessionId, changes)`). (Placeholders exist in `opscore/lifecycle.py`)
+- [X] **Task 2.3:** Integrate an in‑memory storage solution (`opscore/storage.py` implemented with dicts and locks). [COMPLETED - 2025-04-17]
+- [X] **Task 2.4:** Implement session and workflow tracking (`start_session`, `update_session`, `get_session` implemented in `opscore/lifecycle.py` using updated models and storage). [COMPLETED - 2025-04-17]
 
 #### Workflow Sequencing and Orchestration
 - [X] **Task 2.5:** Develop a workflow engine using configurable JSON/YAML templates. (`opscore/workflow.py:load_workflow_template`, `create_workflow`, `get_workflow_definition` implemented)
   - *Subtask:* Implement `createWorkflow(workflowTemplate)` and `enqueueTask(taskData)`. (`enqueue_task` implemented with model validation)
 - [X] **Task 2.6:** Build a task dispatcher to send tasks to agents based on state and priority. (`opscore/workflow.py:dispatch_task`, `process_next_task` implemented, `scheduleTask` placeholder exists)
   - *Subtask:* Develop `dispatchTask(agentId, task)` and `scheduleTask(task, delay)`.
-- [ ] **Task 2.7:** Implement error recovery and retry logic (`retryTask(taskId, retryCount)` and `fallbackTask(taskId)`). (Placeholders exist in `opscore/workflow.py`)
+- [X] **Task 2.7:** Implement error recovery and retry logic placeholders (`handle_task_failure`, `retry_task`, `fallback_task` updated in `opscore/workflow.py`). [COMPLETED - 2025-04-17]
 
 #### Debugging and Logging Subsystem
 - [X] **Task 2.8:** Create a centralized logging module to record all critical operations with timestamps and context. (`opscore/logging_config.py` created and integrated into core modules)
@@ -42,10 +42,10 @@ This TASK.md document provides a detailed, step-by-step checklist for developing
 - [ ] **Task 2.10:** Incorporate performance tracing methods like `startTrace(taskId)` and `endTrace(taskId)`.
 
 #### Integration Endpoints for AgentKit
-- [X] **Task 2.11:** Develop RESTful API endpoints (using FastAPI) for state updates and workflow triggering. (`opscore/api.py` created, `/health` and `/v1/opscore/agent/{agentId}/state` implemented, workflow endpoint placeholder exists)
-  - *Endpoints:*
-    - `POST /v1/opscore/agent/{agentId}/state` for updating agent state.
-    - `POST /v1/opscore/agent/{agentId}/workflow` for starting workflows.
+ - [X] **Task 2.11:** Develop RESTful API endpoints (using FastAPI) for state updates and workflow triggering. (`/health`, `/v1/opscore/agent/{agentId}/state`, and `/v1/opscore/agent/{agentId}/workflow` implemented in `opscore/api.py`). [COMPLETED - 2025-04-17]
+   - *Endpoints:*
+     - `POST /v1/opscore/agent/{agentId}/state` for updating agent state. [Implemented]
+     - `POST /v1/opscore/agent/{agentId}/workflow` for starting workflows. [Implemented]
 - [X] **Task 2.12:** Define and enforce JSON schemas for payloads to ensure input validation. (Pydantic models created in `opscore/models.py`, used in `/state` endpoint and `enqueue_task`)
 - [X] **Task 2.13:** Implement API key authentication for each endpoint. (Implemented via FastAPI dependency in `opscore/api.py` for `/state` endpoint)
 
@@ -64,10 +64,10 @@ This TASK.md document provides a detailed, step-by-step checklist for developing
 
 ### Phase 4: Testing & Validation
 
-- [ ] **Task 4.1:** Write unit tests for each subsystem using pytest.
-  - *Subtasks:*
-    - Validate agent registration with both valid and invalid data.
-    - Test state transitions and session tracking.
+ - [X] **Task 4.1:** Write unit tests for each subsystem using pytest. (Initial tests for storage, lifecycle, workflow implemented in `tests/`). [COMPLETED - 2025-04-17]
+   - *Subtasks:*
+     - [X] Validate agent registration with both valid and invalid data.
+     - [X] Test state transitions and session tracking.
     - Verify workflow sequencing and error recovery functionalities.
 - [ ] **Task 4.2:** Develop integration tests simulating complete workflows (e.g., agent registration → state update → workflow execution).
 - [ ] **Task 4.3:** Set up GitHub Actions to automatically run tests, enforce linting, and maintain code style.

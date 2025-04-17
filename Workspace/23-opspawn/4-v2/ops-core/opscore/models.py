@@ -5,9 +5,10 @@ Defines data structures used throughout the Ops-Core application,
 particularly for API request/response validation and internal data representation.
 """
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, model_validator
 from typing import Dict, Any, Optional, List
-from datetime import datetime
+from datetime import datetime, timezone # Import timezone
+import uuid
 
 # --- Agent Registration Models ---
 
@@ -22,7 +23,7 @@ class AgentRegistrationDetails(BaseModel):
 class AgentInfo(AgentRegistrationDetails):
     """Internal representation of a registered agent."""
     agentId: str
-    registrationTime: datetime = Field(default_factory=datetime.utcnow)
+    registrationTime: datetime = Field(default_factory=lambda: datetime.now(timezone.utc)) # Use timezone-aware
 
 # --- Agent State Models ---
 
@@ -38,7 +39,7 @@ class AgentState(BaseModel):
     agentId: str
     state: str
     details: Optional[Dict[str, Any]] = None
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc)) # Use timezone-aware
 
 # --- Workflow Models ---
 
@@ -66,22 +67,58 @@ class Task(BaseModel):
     status: str = "pending" # e.g., pending, dispatched, running, completed, failed
     retryCount: int = 0
     maxRetries: int = 3 # Could come from workflow definition
-    createdAt: datetime = Field(default_factory=datetime.utcnow)
-    updatedAt: datetime = Field(default_factory=datetime.utcnow)
+    createdAt: datetime = Field(default_factory=lambda: datetime.now(timezone.utc)) # Use timezone-aware
+    updatedAt: datetime = Field(default_factory=lambda: datetime.now(timezone.utc)) # Use timezone-aware
 
 # --- Session Models ---
 
 class WorkflowSession(BaseModel):
     """Represents an execution instance of a workflow."""
-    sessionId: str
+    sessionId: str = Field(default_factory=lambda: str(uuid.uuid4()))
     workflowId: str
     agentId: str # Initially targeted agent, might involve multiple later
-    startTime: datetime = Field(default_factory=datetime.utcnow)
+    startTime: datetime = Field(default_factory=lambda: datetime.now(timezone.utc)) # Use timezone-aware
+    last_updated_time: datetime = Field(default_factory=lambda: datetime.now(timezone.utc)) # Use timezone-aware
     endTime: Optional[datetime] = None
-    status: str # e.g., started, running, completed, failed, cancelled
+    status: str = "started" # e.g., started, running, completed, failed, cancelled, paused
+    metadata: Optional[Dict[str, Any]] = None # For storing arbitrary session-related data
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
     # Add tracking for current task, history, etc. if needed
+
+class SessionUpdate(BaseModel):
+    """Represents the data allowed for updating a session."""
+    status: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+    result: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+    end_time: Optional[datetime] = None
+    # last_updated_time will be set automatically on update
+
+# --- API Request/Response Models ---
+
+class WorkflowTriggerRequest(BaseModel):
+    """Payload for triggering a workflow."""
+    workflowDefinitionId: Optional[str] = None
+    workflowDefinition: Optional[WorkflowDefinition] = None # Allow inline definition
+    initialPayload: Optional[Dict[str, Any]] = None # Optional data for the first task
+
+    # Add validation to ensure either ID or definition is provided, but not both
+    @model_validator(mode='before')
+    @classmethod
+    def check_definition_or_id(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if 'workflowDefinitionId' not in data and 'workflowDefinition' not in data:
+                raise ValueError('Either workflowDefinitionId or workflowDefinition must be provided')
+            if 'workflowDefinitionId' in data and data.get('workflowDefinitionId') and 'workflowDefinition' in data and data.get('workflowDefinition'):
+                raise ValueError('Provide either workflowDefinitionId or workflowDefinition, not both')
+        return data
+
+class WorkflowTriggerResponse(BaseModel):
+    """Response after successfully triggering a workflow."""
+    sessionId: str
+    workflowId: str
+    message: str = "Workflow triggered successfully"
 
 # --- API Response Models ---
 
