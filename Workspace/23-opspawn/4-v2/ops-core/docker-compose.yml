@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  opscore:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: opscore_service
+    ports:
+      - "8000:8000" # Map host port 8000 to container port 8000
+    volumes:
+      - .:/app # Mount the current directory to /app for live code changes
+    env_file:
+      - .env # Load environment variables from .env file (create this file locally)
+    # Environment variables can also be defined directly:
+    # environment:
+    #   - OPSCORE_API_KEY=your_secret_api_key_here # Example: Replace with value from .env
+    #   - AGENTKIT_API_URL=http://localhost:8001 # Example: Replace with actual AgentKit URL if running locally/dockerized
+    command: uvicorn opscore.api:app --host 0.0.0.0 --port 8000 --reload # Use --reload for development
+
+# Add other services here if needed (e.g., AgentKit, Redis)
+# agentkit:
+#   image: agentkit_image_name # Replace with actual image if available
+#   container_name: agentkit_service
+#   ports:
+#     - "8001:8000" # Example port mapping for AgentKit
+#   # depends_on:
+#   #   - opscore # Uncomment if AgentKit needs Ops-Core to be running first
