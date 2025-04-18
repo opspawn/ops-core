@@ -9,6 +9,7 @@ from unittest.mock import patch, MagicMock
 # Import the FastAPI app instance
 from opscore.api import app
 from opscore import models
+from opscore import exceptions # Import custom exceptions
 
 # Create a TestClient instance
 client = TestClient(app)
@@ -45,7 +46,8 @@ def test_set_state_success(mock_set_state):
 
     assert response.status_code == 202
     # Check against the StatusResponse model structure
-    assert response.json() == {"status": "success", "message": "State update accepted"}
+    # Use the actual model for comparison
+    assert response.json() == models.StatusResponse(message="State update accepted").model_dump()
     mock_set_state.assert_called_once_with(
         agent_id=agent_id,
         new_state=payload["state"],
@@ -108,65 +110,67 @@ def test_set_state_agent_id_mismatch():
     assert response.status_code == 400
     assert "Agent ID in path does not match agent ID in payload" in response.json()["detail"]
 
-@patch('opscore.api.lifecycle.set_state', side_effect=ValueError("Agent not found: agent_test_not_found"))
+@patch('opscore.api.lifecycle.set_state')
 def test_set_state_agent_not_found(mock_set_state):
-    """Test POST /state returns 404 if lifecycle reports agent not found."""
-    # Note: The API currently catches generic Exception and returns 500.
-    # This test assumes the API might be improved to map ValueError("Agent not found") to 404.
-    # If the API keeps returning 500 for this, the test needs adjustment.
-    # Let's test the current behavior (500) and add a comment.
-    agent_id = "agent_test_not_found"
-    # Add timestamp to pass Pydantic validation
-    payload = {"agentId": agent_id, "state": "idle", "timestamp": "2024-01-01T00:00:00Z"}
-    response = client.post(f"/v1/opscore/agent/{agent_id}/state", json=payload, headers=HEADERS)
+   """Test POST /state returns 404 if lifecycle reports agent not found."""
+   # UPDATE: Now testing the actual custom exception handling.
+   agent_id = "agent_test_not_found"
+   # Use the actual exception class
+   mock_set_state.side_effect = exceptions.AgentNotFoundError(agent_id)
 
-    # Current behavior check: API returns 500 for any exception from lifecycle.set_state
-    # Check the actual status code returned by the API's generic exception handler
-    assert response.status_code == 500
-    assert "Internal server error" in response.json()["detail"]
-    # Ideal behavior check (if API were improved):
-    # assert response.status_code == 404
-    # assert "Agent not found" in response.json()["detail"]
-    mock_set_state.assert_called_once()
+   # Add timestamp to pass Pydantic validation
+   payload = {"agentId": agent_id, "state": "idle", "timestamp": "2024-01-01T00:00:00Z"}
+   response = client.post(f"/v1/opscore/agent/{agent_id}/state", json=payload, headers=HEADERS)
+
+   # Updated check: API now maps AgentNotFoundError to 404
+   assert response.status_code == 404
+   assert f"Agent not found: {agent_id}" in response.json()["detail"]
+   mock_set_state.assert_called_once()
 
 
-@patch('opscore.api.lifecycle.set_state', side_effect=IOError("Storage connection failed"))
+@patch('opscore.api.lifecycle.set_state')
 def test_set_state_storage_error(mock_set_state):
-    """Test POST /state returns 500 if lifecycle reports a storage error."""
-    agent_id = "agent_test_storage_error"
-    # Add timestamp to pass Pydantic validation
-    payload = {"agentId": agent_id, "state": "error", "details": {"reason": "storage fail"}, "timestamp": "2024-01-01T00:00:00Z"}
-    response = client.post(f"/v1/opscore/agent/{agent_id}/state", json=payload, headers=HEADERS)
-    # Check the actual status code returned by the API's generic exception handler
-    assert response.status_code == 500
-    assert "Internal server error" in response.json()["detail"]
-    mock_set_state.assert_called_once()
+   """Test POST /state returns 500 if lifecycle reports a storage error."""
+   agent_id = "agent_test_storage_error"
+   # Use the actual exception class
+   mock_set_state.side_effect = exceptions.StorageError("Storage connection failed")
+
+   # Add timestamp to pass Pydantic validation
+   payload = {"agentId": agent_id, "state": "error", "details": {"reason": "storage fail"}, "timestamp": "2024-01-01T00:00:00Z"}
+   response = client.post(f"/v1/opscore/agent/{agent_id}/state", json=payload, headers=HEADERS)
+   # Check the actual status code returned by the API's generic exception handler
+   assert response.status_code == 500
+   assert "Storage error processing state update." in response.json()["detail"] # Specific message from handler
+   mock_set_state.assert_called_once()
 
 # --- Test POST /v1/opscore/agent/{agentId}/workflow Endpoint ---
 
 @patch('opscore.api.workflow.enqueue_task')
 @patch('opscore.api.lifecycle.start_session')
 @patch('opscore.api.storage.read_workflow_definition')
-@patch('opscore.api.storage.agent_exists')
+# @patch('opscore.api.storage.agent_exists') # No longer directly checked in API before start_session
 def test_trigger_workflow_success_with_id(
-    mock_agent_exists,
+    # mock_agent_exists, # Removed
     mock_read_wf_def,
     mock_start_session,
     mock_enqueue_task,
     valid_agent_info, # Fixture from conftest
     valid_workflow_def_model, # Corrected fixture name
-    valid_session_model # Fixture from conftest
+    valid_session_model # Fixture from conftest - used only for structure reference now
 ):
     """Test POST /workflow succeeds with a valid workflowDefinitionId."""
     agent_id = valid_agent_info.agentId
     workflow_id = valid_workflow_def_model.id # Corrected fixture name
 
     # --- Mock Setup ---
-    mock_agent_exists.return_value = True
+    # mock_agent_exists.return_value = True # No longer needed for this path
     mock_read_wf_def.return_value = valid_workflow_def_model # Corrected fixture name
     # Use the valid_session_model fixture as the return value for start_session
     # Ensure the session ID in the fixture matches what the response should contain
-    mock_start_session.return_value = valid_session_model
+    # Ensure sessionId is a string to prevent downstream Pydantic errors
+    mock_session = MagicMock(spec=models.WorkflowSession)
+    mock_session.sessionId = "mock-session-id-string-123" # Explicitly set as string
+    mock_start_session.return_value = mock_session
     mock_enqueue_task.return_value = None # Assume enqueue returns None on success
 
     # --- Request Payload ---
@@ -181,9 +185,9 @@ def test_trigger_workflow_success_with_id(
     # --- Assertions ---
     assert response.status_code == 202
     expected_response = {
-        "sessionId": valid_session_model.sessionId, # Use ID from the mock return value
+        "sessionId": mock_session.sessionId, # Use ID from the mock return value
         "workflowId": workflow_id,
-        "message": "Workflow triggered successfully" # Corrected: No period
+        "message": "Workflow triggered successfully" # Default message
     }
     # Adjust expected message if the workflow has no tasks (based on corrected fixture name)
     if not valid_workflow_def_model.tasks:
@@ -192,7 +196,7 @@ def test_trigger_workflow_success_with_id(
     assert response.json() == expected_response
 
     # Verify mocks were called
-    mock_agent_exists.assert_called_once_with(agent_id)
+    # mock_agent_exists.assert_called_once_with(agent_id) # No longer called here
     mock_read_wf_def.assert_called_once_with(workflow_id)
     mock_start_session.assert_called_once_with(agent_id=agent_id, workflow_id=workflow_id)
 
@@ -203,7 +207,7 @@ def test_trigger_workflow_success_with_id(
         call_args, _ = mock_enqueue_task.call_args
         enqueued_task_data = call_args[0]
         assert enqueued_task_data["workflowId"] == workflow_id
-        assert enqueued_task_data["sessionId"] == valid_session_model.sessionId
+        assert enqueued_task_data["sessionId"] == mock_session.sessionId
         assert enqueued_task_data["agentId"] == agent_id
         assert enqueued_task_data["taskDefinitionId"] == valid_workflow_def_model.tasks[0].get("taskId") # Corrected fixture name
         assert enqueued_task_data["payload"] == payload["initialPayload"]
@@ -216,16 +220,16 @@ def test_trigger_workflow_success_with_id(
 @patch('opscore.api.lifecycle.start_session')
 @patch('opscore.api.storage.save_workflow_definition') # Add mock for saving
 @patch('opscore.api.storage.read_workflow_definition')
-@patch('opscore.api.storage.agent_exists')
+# @patch('opscore.api.storage.agent_exists') # No longer directly checked
 def test_trigger_workflow_success_with_inline_def(
-    mock_agent_exists,
+    # mock_agent_exists, # Removed
     mock_read_wf_def,
     mock_save_wf_def, # Add mock param
     mock_start_session,
     mock_enqueue_task,
     valid_agent_info,
     valid_workflow_def_model, # Corrected fixture name
-    valid_session_model
+    valid_session_model # Used only for structure reference now
 ):
     """Test POST /workflow succeeds with a valid inline workflowDefinition."""
     agent_id = valid_agent_info.agentId
@@ -234,10 +238,13 @@ def test_trigger_workflow_success_with_inline_def(
     workflow_id = inline_workflow_dict["id"] # Get ID from the dict
 
     # --- Mock Setup ---
-    mock_agent_exists.return_value = True
+    # mock_agent_exists.return_value = True # No longer needed
     mock_read_wf_def.return_value = None # Simulate definition doesn't exist yet
     mock_save_wf_def.return_value = None # Assume save returns None
-    mock_start_session.return_value = valid_session_model
+    # Ensure sessionId is a string
+    mock_session = MagicMock(spec=models.WorkflowSession)
+    mock_session.sessionId = "mock-session-id-string-456" # Explicitly set as string
+    mock_start_session.return_value = mock_session
     mock_enqueue_task.return_value = None
 
     # --- Request Payload ---
@@ -252,7 +259,7 @@ def test_trigger_workflow_success_with_inline_def(
     # --- Assertions ---
     assert response.status_code == 202
     expected_response = {
-        "sessionId": valid_session_model.sessionId,
+        "sessionId": mock_session.sessionId,
         "workflowId": workflow_id,
         "message": "Workflow triggered successfully" # Corrected: No period
     }
@@ -262,7 +269,7 @@ def test_trigger_workflow_success_with_inline_def(
     assert response.json() == expected_response
 
     # Verify mocks
-    mock_agent_exists.assert_called_once_with(agent_id)
+    # mock_agent_exists.assert_called_once_with(agent_id) # No longer called
     mock_read_wf_def.assert_called_once_with(workflow_id) # API checks if it exists
     mock_save_wf_def.assert_called_once() # API should save the new inline def
     # Check that the saved object matches the inline definition
@@ -324,112 +331,136 @@ def test_trigger_workflow_invalid_inline_definition():
     assert any("workflowDefinition" in err["loc"] and "id" in err["loc"] and "Field required" in err["msg"] for err in response.json()["detail"])
 
 
-@patch('opscore.api.storage.agent_exists', return_value=False)
-def test_trigger_workflow_agent_not_found(mock_agent_exists):
-    """Test POST /workflow returns 404 if agent does not exist."""
-    agent_id = "agent_does_not_exist"
-    payload = {"workflowDefinitionId": "wf_irrelevant"}
-    response = client.post(f"/v1/opscore/agent/{agent_id}/workflow", json=payload, headers=HEADERS)
-    assert response.status_code == 404
-    assert f"Agent not found: {agent_id}" in response.json()["detail"]
-    mock_agent_exists.assert_called_once_with(agent_id)
+# Refactored Test: Agent not found is now detected during start_session
+@patch('opscore.api.lifecycle.start_session')
+@patch('opscore.api.storage.read_workflow_definition') # Need to mock this to return a valid def
+def test_trigger_workflow_agent_not_found(mock_read_wf_def, mock_start_session, valid_workflow_def_model):
+   """Test POST /workflow returns 404 if agent does not exist."""
+   agent_id = "agent_does_not_exist"
+   workflow_id = valid_workflow_def_model.id
+   payload = {"workflowDefinitionId": workflow_id}
+
+   # Mock read_workflow_definition to return the valid definition so the code proceeds to start_session
+   mock_read_wf_def.return_value = valid_workflow_def_model
+   # Use the actual exception class
+   mock_start_session.side_effect = exceptions.AgentNotFoundError(agent_id)
+
+   response = client.post(f"/v1/opscore/agent/{agent_id}/workflow", json=payload, headers=HEADERS)
+   assert response.status_code == 404
+   assert f"Agent not found: {agent_id}" in response.json()["detail"]
+   mock_read_wf_def.assert_called_once_with(workflow_id) # Verify read was called
+   mock_start_session.assert_called_once_with(agent_id=agent_id, workflow_id=workflow_id) # Verify start_session was called
 
 @patch('opscore.api.storage.read_workflow_definition', return_value=None)
-@patch('opscore.api.storage.agent_exists', return_value=True)
-def test_trigger_workflow_definition_not_found(mock_agent_exists, mock_read_wf_def):
-    """Test POST /workflow returns 404 if workflow definition ID is not found."""
-    agent_id = "agent_exists_wf_not_found"
-    workflow_id = "wf_does_not_exist"
-    payload = {"workflowDefinitionId": workflow_id}
-    response = client.post(f"/v1/opscore/agent/{agent_id}/workflow", json=payload, headers=HEADERS)
-    assert response.status_code == 404
-    assert f"Workflow definition not found: {workflow_id}" in response.json()["detail"]
-    mock_agent_exists.assert_called_once_with(agent_id)
-    mock_read_wf_def.assert_called_once_with(workflow_id)
+# @patch('opscore.api.storage.agent_exists', return_value=True) # No longer checked directly
+def test_trigger_workflow_definition_not_found(mock_read_wf_def): # Removed mock_agent_exists
+   """Test POST /workflow returns 404 if workflow definition ID is not found."""
+   agent_id = "agent_exists_wf_not_found"
+   workflow_id = "wf_does_not_exist"
+   payload = {"workflowDefinitionId": workflow_id}
+   response = client.post(f"/v1/opscore/agent/{agent_id}/workflow", json=payload, headers=HEADERS)
+   assert response.status_code == 404
+   # Ensure the detail matches the exception message format
+   assert f"Workflow definition not found: {workflow_id}" in response.json()["detail"]
+   # mock_agent_exists.assert_called_once_with(agent_id) # No longer called
+   mock_read_wf_def.assert_called_once_with(workflow_id)
 
-@patch('opscore.api.lifecycle.start_session', side_effect=ValueError("Session creation conflict"))
+@patch('opscore.api.lifecycle.start_session')
 @patch('opscore.api.storage.read_workflow_definition')
-@patch('opscore.api.storage.agent_exists')
-def test_trigger_workflow_session_start_value_error(
-    mock_agent_exists, mock_read_wf_def, mock_start_session, valid_workflow_def_model # Corrected fixture name
+# @patch('opscore.api.storage.agent_exists') # No longer checked directly
+def test_trigger_workflow_session_start_opscore_error( # Renamed for clarity
+   mock_read_wf_def, mock_start_session, valid_workflow_def_model # Corrected fixture name
 ):
-    """Test POST /workflow returns 400 if lifecycle.start_session raises ValueError."""
-    agent_id = "agent_session_fail_400"
-    workflow_id = valid_workflow_def_model.id # Corrected fixture name
-    mock_agent_exists.return_value = True
-    mock_read_wf_def.return_value = valid_workflow_def_model # Corrected fixture name
-    payload = {"workflowDefinitionId": workflow_id}
+   """Test POST /workflow returns 500 if lifecycle.start_session raises OpsCoreError."""
+   agent_id = "agent_session_fail_500" # Renamed agent_id for clarity
+   workflow_id = valid_workflow_def_model.id # Corrected fixture name
+   # mock_agent_exists.return_value = True # Removed
+   mock_read_wf_def.return_value = valid_workflow_def_model # Corrected fixture name
+   # Use the actual exception class
+   error_message = "Session creation conflict"
+   mock_start_session.side_effect = exceptions.OpsCoreError(error_message)
+   payload = {"workflowDefinitionId": workflow_id}
 
-    response = client.post(f"/v1/opscore/agent/{agent_id}/workflow", json=payload, headers=HEADERS)
-    assert response.status_code == 400
-    assert "Failed to start session: Session creation conflict" in response.json()["detail"]
-    mock_start_session.assert_called_once()
+   response = client.post(f"/v1/opscore/agent/{agent_id}/workflow", json=payload, headers=HEADERS)
+   # API maps generic OpsCoreError during session start to 500
+   assert response.status_code == 500
+   assert f"Failed to start workflow session: {error_message}" in response.json()["detail"]
+   mock_start_session.assert_called_once()
 
-@patch('opscore.api.lifecycle.start_session', side_effect=IOError("Storage unavailable"))
+@patch('opscore.api.lifecycle.start_session')
 @patch('opscore.api.storage.read_workflow_definition')
-@patch('opscore.api.storage.agent_exists')
-def test_trigger_workflow_session_start_io_error(
-    mock_agent_exists, mock_read_wf_def, mock_start_session, valid_workflow_def_model # Corrected fixture name
+# @patch('opscore.api.storage.agent_exists') # No longer checked directly
+def test_trigger_workflow_session_start_storage_error( # Renamed for clarity
+   mock_read_wf_def, mock_start_session, valid_workflow_def_model # Corrected fixture name
 ):
-    """Test POST /workflow returns 500 if lifecycle.start_session raises IOError."""
-    agent_id = "agent_session_fail_500"
-    workflow_id = valid_workflow_def_model.id # Corrected fixture name
-    mock_agent_exists.return_value = True
-    mock_read_wf_def.return_value = valid_workflow_def_model # Corrected fixture name
-    payload = {"workflowDefinitionId": workflow_id}
+   """Test POST /workflow returns 500 if lifecycle.start_session raises StorageError."""
+   agent_id = "agent_session_fail_500_storage" # Renamed agent_id for clarity
+   workflow_id = valid_workflow_def_model.id # Corrected fixture name
+   # mock_agent_exists.return_value = True # Removed
+   mock_read_wf_def.return_value = valid_workflow_def_model # Corrected fixture name
+   # Use the actual exception class
+   error_message = "Storage unavailable"
+   mock_start_session.side_effect = exceptions.StorageError(error_message)
+   payload = {"workflowDefinitionId": workflow_id}
 
-    response = client.post(f"/v1/opscore/agent/{agent_id}/workflow", json=payload, headers=HEADERS)
-    assert response.status_code == 500
-    assert "Failed to start workflow session" in response.json()["detail"]
-    mock_start_session.assert_called_once()
+   response = client.post(f"/v1/opscore/agent/{agent_id}/workflow", json=payload, headers=HEADERS)
+   assert response.status_code == 500
+   assert "Failed to start session due to storage issue." in response.json()["detail"] # Specific message
+   mock_start_session.assert_called_once()
 
 
 @patch('opscore.api.lifecycle.update_session') # Mock update_session called in error handler
-@patch('opscore.api.workflow.enqueue_task', side_effect=Exception("Queue is full"))
+@patch('opscore.api.workflow.enqueue_task')
 @patch('opscore.api.lifecycle.start_session')
 @patch('opscore.api.storage.read_workflow_definition')
-@patch('opscore.api.storage.agent_exists')
+# @patch('opscore.api.storage.agent_exists') # No longer checked directly
 def test_trigger_workflow_enqueue_failure(
-    mock_agent_exists, mock_read_wf_def, mock_start_session, mock_enqueue_task, mock_update_session,
-    valid_workflow_def_model, valid_session_model # Corrected fixture name
+   mock_read_wf_def, mock_start_session, mock_enqueue_task, mock_update_session,
+   valid_workflow_def_model, valid_session_model # Corrected fixture name
 ):
-    """Test POST /workflow returns 500 if workflow.enqueue_task fails."""
-    # Ensure the workflow def has tasks to trigger enqueue (use corrected fixture name)
-    if not valid_workflow_def_model.tasks:
-        # Note: Modifying fixture instance directly in test is generally discouraged,
-        # but okay here as it's reset for each test by clear_storage_before_each_test.
-        # A better approach might be a separate fixture for a workflow with tasks.
-        valid_workflow_def_model.tasks = [{"taskId": "task1", "name": "Test Task"}]
+   """Test POST /workflow returns 400 if workflow.enqueue_task fails with InvalidStateError."""
+   # Ensure the workflow def has tasks to trigger enqueue (use corrected fixture name)
+   if not valid_workflow_def_model.tasks:
+       # Note: Modifying fixture instance directly in test is generally discouraged,
+       # but okay here as it's reset for each test by clear_storage_before_each_test.
+       # A better approach might be a separate fixture for a workflow with tasks.
+       valid_workflow_def_model.tasks = [{"taskId": "task1", "name": "Test Task"}]
 
-    agent_id = "agent_enqueue_fail"
-    workflow_id = valid_workflow_def_model.id # Corrected fixture name
-    mock_agent_exists.return_value = True
-    mock_read_wf_def.return_value = valid_workflow_def_model # Corrected fixture name
-    mock_start_session.return_value = valid_session_model
-    mock_update_session.return_value = None # Mock the error handler call
+   agent_id = "agent_enqueue_fail"
+   workflow_id = valid_workflow_def_model.id # Corrected fixture name
+   # mock_agent_exists.return_value = True # Removed
+   mock_read_wf_def.return_value = valid_workflow_def_model # Corrected fixture name
+   # Ensure sessionId is a string on the mock session returned by start_session
+   mock_session = MagicMock(spec=models.WorkflowSession)
+   mock_session.sessionId = "mock-session-id-enqueue-fail" # Explicitly set as string
+   mock_start_session.return_value = mock_session
+   mock_update_session.return_value = None # Mock the error handler call
+   # Use the actual exception class
+   error_message = "Queue is full"
+   mock_enqueue_task.side_effect = exceptions.InvalidStateError(error_message)
 
-    payload = {"workflowDefinitionId": workflow_id}
-    response = client.post(f"/v1/opscore/agent/{agent_id}/workflow", json=payload, headers=HEADERS)
+   payload = {"workflowDefinitionId": workflow_id}
+   response = client.post(f"/v1/opscore/agent/{agent_id}/workflow", json=payload, headers=HEADERS)
 
-    assert response.status_code == 500
-    assert "Failed to enqueue first task" in response.json()["detail"]
-    mock_enqueue_task.assert_called_once()
-    mock_update_session.assert_called_once() # Verify session status was updated to failed
-    call_args, _ = mock_update_session.call_args
-    assert call_args[0] == valid_session_model.sessionId # Check session ID
-    update_payload = call_args[1]
-    assert isinstance(update_payload, models.SessionUpdate)
-    assert update_payload.status == "failed"
-    assert "Queue is full" in update_payload.error
+   assert response.status_code == 400 # InvalidStateError maps to 400 in this block
+   assert f"Failed to enqueue first task due to invalid data: {error_message}" in response.json()["detail"]
+   mock_enqueue_task.assert_called_once()
+   mock_update_session.assert_called_once() # Verify session status was updated to failed
+   call_args, _ = mock_update_session.call_args
+   assert call_args[0] == mock_session.sessionId # Check session ID
+   update_payload = call_args[1]
+   assert isinstance(update_payload, models.SessionUpdate)
+   assert update_payload.status == "failed"
+   assert error_message in update_payload.error
 
 
 @patch('opscore.api.lifecycle.update_session') # Mock update_session called when no tasks
 @patch('opscore.api.workflow.enqueue_task')
 @patch('opscore.api.lifecycle.start_session')
 @patch('opscore.api.storage.read_workflow_definition')
-@patch('opscore.api.storage.agent_exists')
+# @patch('opscore.api.storage.agent_exists') # No longer checked directly
 def test_trigger_workflow_no_tasks(
-    mock_agent_exists, mock_read_wf_def, mock_start_session, mock_enqueue_task, mock_update_session,
+    mock_read_wf_def, mock_start_session, mock_enqueue_task, mock_update_session,
     valid_workflow_def_model, valid_session_model
 ):
     """Test POST /workflow when the definition has no tasks."""
@@ -438,9 +469,11 @@ def test_trigger_workflow_no_tasks(
 
     agent_id = "agent_no_tasks"
     workflow_id = valid_workflow_def_model.id
-    mock_agent_exists.return_value = True
+    # mock_agent_exists.return_value = True # Removed
+    mock_session = MagicMock(spec=models.WorkflowSession)
+    mock_session.sessionId = "mock-session-id-no-tasks" # Explicitly set as string
     mock_read_wf_def.return_value = valid_workflow_def_model
-    mock_start_session.return_value = valid_session_model
+    mock_start_session.return_value = mock_session
     mock_update_session.return_value = None # Mock the call to update session status
 
     payload = {"workflowDefinitionId": workflow_id}
@@ -448,7 +481,7 @@ def test_trigger_workflow_no_tasks(
 
     assert response.status_code == 202
     expected_response = {
-        "sessionId": valid_session_model.sessionId,
+        "sessionId": mock_session.sessionId,
         "workflowId": workflow_id,
         "message": "Workflow triggered but has no tasks." # Specific message for this case
     }
@@ -457,7 +490,7 @@ def test_trigger_workflow_no_tasks(
     mock_enqueue_task.assert_not_called() # No task should be enqueued
     mock_update_session.assert_called_once() # Session should be updated to completed
     call_args, _ = mock_update_session.call_args
-    assert call_args[0] == valid_session_model.sessionId
+    assert call_args[0] == mock_session.sessionId
     update_payload = call_args[1]
     assert isinstance(update_payload, models.SessionUpdate)
     assert update_payload.status == "completed"

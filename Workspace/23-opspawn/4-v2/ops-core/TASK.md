@@ -48,7 +48,7 @@ This TASK.md document provides a detailed, step-by-step checklist for developing
      - `POST /v1/opscore/agent/{agentId}/workflow` for starting workflows. [Implemented]
 - [X] **Task 2.12:** Define and enforce JSON schemas for payloads to ensure input validation. (Pydantic models created in `opscore/models.py`, used in `/state` endpoint and `enqueue_task`)
 - [X] **Task 2.13:** Implement API key authentication for each endpoint. (Implemented via FastAPI dependency in `opscore/api.py` for `/state` endpoint)
-- [ ] **Task 2.14:** Implement Custom Exceptions (`opscore/exceptions.py` created, refactoring in progress). [STARTED - 2025-04-17]
+- [X] **Task 2.14:** Implement Custom Exceptions (`opscore/exceptions.py` created, core modules refactored, tests updated). [COMPLETED - 2025-04-17]
 
 ---
 

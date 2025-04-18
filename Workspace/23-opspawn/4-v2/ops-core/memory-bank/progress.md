@@ -11,15 +11,15 @@
     - Logging (`logging_config.py`): Structured JSON logging configured. (Test coverage needs review)
     - Models (`models.py`): Core Pydantic models defined and used. (Test coverage needs review)
     - AgentKit Client (`agentkit_client.py`): Placeholder created. (Test coverage needs review)
-    - Exceptions (`exceptions.py`): Custom exception hierarchy defined.
-- **API Endpoints (`api.py`):** `/health`, `/v1/opscore/agent/{agentId}/state`, `/v1/opscore/agent/{agentId}/workflow` implemented, using custom exceptions. (89% test coverage, needs update for exception handling tests)
+    - Exceptions (`exceptions.py`): Custom exception hierarchy defined and fully integrated with all core modules.
+- **API Endpoints (`api.py`):** `/health`, `/v1/opscore/agent/{agentId}/state`, `/v1/opscore/agent/{agentId}/workflow` implemented, using custom exceptions with proper HTTP status code mappings. (89% test coverage)
 - **Unit Tests:** Test suite expanded for storage, lifecycle, workflow, and API modules using pytest. Tests for lifecycle, workflow, storage updated for custom exceptions. All 91 tests passing currently.
 
 ## 2. What's Left to Build (Immediate Next Steps from `TASK.md`)
 - **Phase 2 Tasks:**
     - [ ] **Task 2.9:** Develop a basic CLI or web dashboard for real‑time log inspection and filtering.
     - [ ] **Task 2.10:** Incorporate performance tracing methods like `startTrace(taskId)` and `endTrace(taskId)`.
-    - [ ] **Task 2.14:** Implement Custom Exceptions. (In Progress - API tests remaining)
+    - [X] **Task 2.14:** Implement Custom Exceptions. (Completed - 2025-04-17)
 - **Phase 3 Tasks:**
     - [ ] Task 3.1: Integrate the Ops‑Core API endpoints with a Python SDK.
     - [ ] Task 3.2: Create a simple CLI application to interact with Ops‑Core endpoints.
@@ -35,13 +35,13 @@
 - **Backlog:** Persistent storage/queue, advanced debugging/security, async messaging, etc.
 
 ## 3. Current Status Overview
-- **Overall:** Core functionalities for lifecycle management and workflow orchestration are implemented with agent state checking and initial custom exception handling. API endpoints for interaction are available. Unit tests cover major components, but API exception handling tests need updating.
+- **Overall:** Core functionalities for lifecycle management and workflow orchestration are implemented with agent state checking and comprehensive custom exception handling. API endpoints for interaction are available with proper error handling. Unit tests cover major components with all tests passing.
 - **Blockers/Dependencies:** Confirmation of AgentKit's `GET /v1/agents` endpoint details still pending for full AgentKit integration and agent discovery features.
 
 ## 4. Known Issues
-- Test coverage for `logging_config.py`, `models.py`, `agentkit_client.py`, and `workflow.py` needs review/improvement, especially after exception refactoring. API test coverage needs update for exception handling.
+- Test coverage for `logging_config.py`, `models.py`, `agentkit_client.py`, and `workflow.py` needs review/improvement.
 - Task queue (`workflow._task_queue`) is still in-memory.
-- Error handling refactored to use custom exceptions, but API tests need updating to verify HTTP mapping.
+- Re-queue logic in `process_next_task` uses immediate re-queue instead of delayed backoff.
 - Re-queue logic in `process_next_task` uses immediate re-queue instead of delayed backoff.
 
 ## 5. Evolution of Project Decisions
@@ -55,4 +55,5 @@
 - **[2025-04-17]** Improved `lifecycle.py` unit test coverage to 100% (Refinement of Task 4.1).
 - **[2025-04-17]** Implemented unit tests for `api.py`, achieving 89% coverage (Refinement of Task 4.1 / Part of Task 4.2).
 - **[2025-04-17]** Implemented agent state check in `workflow.process_next_task` using `asyncio.to_thread` and added corresponding unit tests.
-- **[2025-04-17]** Created `opscore/exceptions.py` and refactored `lifecycle.py`, `workflow.py`, `storage.py`, `api.py` and corresponding tests (except `test_api.py`) to use custom exceptions (Task 2.14).
+- **[2025-04-17]** Created `opscore/exceptions.py` and refactored `lifecycle.py`, `workflow.py`, `storage.py`, `api.py` and corresponding tests to use custom exceptions (Task 2.14).
+- **[2025-04-17]** Completed Task 2.14 by updating `test_api.py` to verify custom exception handling and HTTP status code mappings.
