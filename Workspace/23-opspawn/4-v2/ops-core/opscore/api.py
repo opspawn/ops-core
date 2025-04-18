@@ -7,6 +7,7 @@ including agent state updates and workflow management.
 
 from fastapi import FastAPI, Depends, HTTPException, status, Request, Header
 from typing import Dict, Any, Annotated
+import uuid # Import uuid module
 
 import os
 from dotenv import load_dotenv

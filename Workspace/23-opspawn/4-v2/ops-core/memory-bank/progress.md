@@ -6,13 +6,13 @@
 - **Technology Selection:** FastAPI confirmed. Pytest configured with asyncio, mock, and cov plugins.
 - **Core Modules Implemented:**
     - Storage (`storage.py`): In-memory implementation using models, thread-safe. (91% test coverage)
-    - Lifecycle (`lifecycle.py`): Agent registration, state management, session tracking implemented using models. (76% test coverage)
+    - Lifecycle (`lifecycle.py`): Agent registration, state management, session tracking implemented using models. (100% test coverage)
     - Workflow (`workflow.py`): Definition loading, task queuing (in-memory), placeholder dispatching (async, connected to client), placeholder error handling implemented. (89% test coverage)
     - Logging (`logging_config.py`): Structured JSON logging configured. (71% test coverage)
     - Models (`models.py`): Core Pydantic models defined and used. (93% test coverage)
     - AgentKit Client (`agentkit_client.py`): Placeholder created. (47% test coverage)
-- **API Endpoints (`api.py`):** `/health`, `/v1/opscore/agent/{agentId}/state`, `/v1/opscore/agent/{agentId}/workflow` implemented. (0% test coverage)
-- **Unit Tests:** Initial test suite implemented for storage, lifecycle, and workflow modules using pytest. All 57 tests passing.
+- **API Endpoints (`api.py`):** `/health`, `/v1/opscore/agent/{agentId}/state`, `/v1/opscore/agent/{agentId}/workflow` implemented. (89% test coverage)
+- **Unit Tests:** Initial test suite implemented for storage, lifecycle, workflow, and API modules using pytest. All 25 lifecycle tests and 21 API tests passing.
 
 ## 2. What's Left to Build (Immediate Next Steps from `TASK.md`)
 - **Phase 2 Tasks:**
@@ -24,7 +24,7 @@
     - [ ] Task 3.3: Implement middleware for structured logging and standardized error handling across endpoints.
     - [ ] Task 3.4: Ensure all endpoints interoperate seamlessly with AgentKit’s integration interfaces.
 - **Phase 4 Tasks:**
-    - [X] Task 4.1: Write unit tests for each subsystem using pytest. (Initial implementation complete, coverage needs improvement for lifecycle & API).
+    - [X] Task 4.1: Write unit tests for each subsystem using pytest. (Initial implementation complete; lifecycle coverage improved to 100%, API coverage added at 89%).
     - [ ] Task 4.2: Develop integration tests simulating complete workflows.
     - [ ] Task 4.3: Set up GitHub Actions for CI/CD (testing, linting).
     - [ ] Task 4.4: Perform performance and load testing on API endpoints.
@@ -37,8 +37,6 @@
 - **Blockers/Dependencies:** Confirmation of AgentKit's `GET /v1/agents` endpoint details still pending for full AgentKit integration and agent discovery features.
 
 ## 4. Known Issues
-- Lifecycle test coverage (76%) is slightly below the 80% target.
-- API endpoints (`api.py`) lack unit/integration tests (0% coverage).
 - Task queue (`workflow._task_queue`) is still in-memory.
 - Agent state check in `workflow.process_next_task` is bypassed.
 - Error handling is basic; custom exceptions not yet implemented.
@@ -51,3 +49,5 @@
 - **[2025-04-17]** Created AgentKit client placeholder and connected dispatcher.
 - **[2025-04-17]** Implemented workflow trigger API endpoint (Task 2.11).
 - **[2025-04-17]** Implemented initial unit tests (Task 4.1) and fixed failures/warnings. Added 80% coverage goal. Standardized on timezone-aware datetimes.
+- **[2025-04-17]** Improved `lifecycle.py` unit test coverage to 100% by adding tests for error handling paths (Refinement of Task 4.1).
+- **[2025-04-17]** Implemented unit tests for `api.py` endpoints, achieving 89% coverage (Refinement of Task 4.1 / Part of Task 4.2). Fixed `NameError` in `api.py`.

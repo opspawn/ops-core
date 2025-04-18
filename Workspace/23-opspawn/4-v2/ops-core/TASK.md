@@ -64,7 +64,7 @@ This TASK.md document provides a detailed, step-by-step checklist for developing
 
 ### Phase 4: Testing & Validation
 
- - [X] **Task 4.1:** Write unit tests for each subsystem using pytest. (Initial tests for storage, lifecycle, workflow implemented in `tests/`). [COMPLETED - 2025-04-17]
+ - [X] **Task 4.1:** Write unit tests for each subsystem using pytest. (Initial tests for storage, lifecycle, workflow implemented in `tests/`; lifecycle coverage improved to 100%, API coverage added at 89%). [COMPLETED - 2025-04-17]
    - *Subtasks:*
      - [X] Validate agent registration with both valid and invalid data.
      - [X] Test state transitions and session tracking.

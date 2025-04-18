@@ -4,6 +4,7 @@ Unit tests for the opscore.lifecycle module.
 
 import pytest
 import uuid # Add missing import
+from unittest.mock import patch # Add mock import
 from opscore import lifecycle, storage, models
 from datetime import datetime, timezone # Import timezone
 
@@ -229,3 +230,109 @@ def test_get_session_not_found():
     """Test getting a non-existent session returns None."""
     retrieved_session = lifecycle.get_session("non_existent_session")
     assert retrieved_session is None
+
+
+# --- Tests for Error Handling ---
+
+@patch('opscore.storage.save_agent_registration', side_effect=IOError("Disk full"))
+def test_register_agent_storage_failure(mock_save, valid_agent_reg_details):
+    """Test register_agent raises IOError on storage failure."""
+    # Lines 54-57
+    with pytest.raises(IOError, match="Failed to save registration"):
+        lifecycle.register_agent(valid_agent_reg_details)
+    mock_save.assert_called_once()
+
+# Removed mock - testing actual validation failure
+def test_set_state_model_creation_failure(valid_agent_info):
+    """Test set_state raises ValueError on AgentState model creation failure due to invalid data type."""
+    # Lines 105-107 (Note: Requires valid_agent_info fixture from conftest)
+    # Ensure agent is registered first for the initial check to pass
+    storage.save_agent_registration(valid_agent_info)
+    agent_id = valid_agent_info.agentId
+
+    # Pass an integer for state, which should cause Pydantic validation error
+    with pytest.raises(ValueError, match="Invalid state data provided"):
+        lifecycle.set_state(agent_id, 12345) # Pass invalid type for state
+
+
+@patch('opscore.storage.save_agent_state', side_effect=IOError("DB connection lost"))
+def test_set_state_storage_failure(mock_save, valid_agent_info):
+    """Test set_state raises IOError on storage failure."""
+    # Lines 113-116 (Note: Requires valid_agent_info fixture from conftest)
+    # Ensure agent is registered first for the initial check to pass
+    storage.save_agent_registration(valid_agent_info)
+    agent_id = valid_agent_info.agentId
+
+    with pytest.raises(IOError, match="Failed to save state"):
+        lifecycle.set_state(agent_id, "active")
+    mock_save.assert_called_once()
+
+# Changed patch target
+@patch('opscore.lifecycle.WorkflowSession', side_effect=ValueError("Session init failed"))
+def test_start_session_model_creation_failure(mock_model, valid_agent_info):
+    """Test start_session raises ValueError on WorkflowSession model creation failure."""
+    # Lines 172-174 (Note: Requires valid_agent_info fixture from conftest)
+    storage.save_agent_registration(valid_agent_info)
+    agent_id = valid_agent_info.agentId
+    with pytest.raises(ValueError, match="Failed to initialize session object"):
+        lifecycle.start_session(agent_id, "wf_model_fail")
+    # mock_model.assert_called_once() # Mocking the class directly might not track calls this way
+
+
+@patch('opscore.storage.create_session', side_effect=ValueError("Duplicate session ID"))
+def test_start_session_storage_value_error(mock_create, valid_agent_info):
+    """Test start_session raises ValueError on storage value error."""
+    # Lines 180-182 (Note: Requires valid_agent_info fixture from conftest)
+    storage.save_agent_registration(valid_agent_info)
+    agent_id = valid_agent_info.agentId
+    with pytest.raises(ValueError, match="Failed to create session: Duplicate session ID"):
+        lifecycle.start_session(agent_id, "wf_storage_value_fail")
+    mock_create.assert_called_once()
+
+@patch('opscore.storage.create_session', side_effect=IOError("Cannot write session"))
+def test_start_session_storage_io_error(mock_create, valid_agent_info):
+    """Test start_session raises IOError on storage IO error."""
+    # Lines 183-185 (Note: Requires valid_agent_info fixture from conftest)
+    storage.save_agent_registration(valid_agent_info)
+    agent_id = valid_agent_info.agentId
+    with pytest.raises(IOError, match="Failed to save session"):
+        lifecycle.start_session(agent_id, "wf_storage_io_fail")
+    mock_create.assert_called_once()
+
+@patch('opscore.storage.read_session', return_value=None)
+def test_update_session_empty_payload_not_found(mock_read):
+    """Test update_session with empty payload for non-existent session raises ValueError."""
+    # Line 215
+    update_payload = models.SessionUpdate()
+    with pytest.raises(ValueError, match="Session not found: non_existent_session_empty"):
+        lifecycle.update_session("non_existent_session_empty", update_payload)
+    mock_read.assert_called_once_with("non_existent_session_empty")
+
+
+@patch('opscore.storage.update_session_data', side_effect=ValueError("Invalid status transition"))
+def test_update_session_storage_value_error(mock_update, valid_session_model):
+    """Test update_session raises ValueError on storage value error."""
+    # Lines 236-238 (Note: Requires valid_session_model fixture from conftest)
+    # Ensure session exists for the initial read to pass
+    storage.create_session(valid_session_model)
+    session_id = valid_session_model.sessionId
+    update_payload = models.SessionUpdate(status="invalid_state_for_storage")
+
+    with pytest.raises(ValueError, match="Invalid update data for session"):
+        lifecycle.update_session(session_id, update_payload)
+    mock_update.assert_called_once()
+
+@patch('opscore.storage.update_session_data', side_effect=IOError("Cannot update session"))
+def test_update_session_storage_io_error(mock_update, valid_session_model):
+    """Test update_session raises IOError on storage IO error."""
+    # Lines 239-241 (Note: Requires valid_session_model fixture from conftest)
+    storage.create_session(valid_session_model)
+    session_id = valid_session_model.sessionId
+    update_payload = models.SessionUpdate(status="running")
+
+    with pytest.raises(IOError, match="Failed to update session"):
+        lifecycle.update_session(session_id, update_payload)
+    mock_update.assert_called_once()
+
+# Note: Lines 236-241 in get_session are related to storage.read_session returning None,
+# which is already covered by test_get_session_not_found. No new test needed for this.

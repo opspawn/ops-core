@@ -1,4 +1,4 @@
-# Active Context: Ops-Core Python Module (End of Session - 2025-04-17)
+# Active Context: Ops-Core Python Module (Updated - 2025-04-17 @ 18:01)
 
 ## 1. Current Work Focus
 - **Completed:** Phase 1 (Initialization & Research), Phase 2 foundational components (Lifecycle, Workflow, Storage, Logging, Models, API state endpoint), Task 2.4 (Session Tracking), Task 2.7 (Error Handling Placeholders), AgentKit Client Placeholder, Dispatcher Connection, Task 4.1 (Initial Unit Tests).
@@ -13,16 +13,17 @@
 - **Storage:** Refactored storage functions to consistently use and return Pydantic models. Implemented `create_session`, `read_session`, `update_session_data`, `delete_session`. Updated datetime usage.
 - **Testing:** Added `pytest-asyncio`, `pytest-mock`, `pytest-cov` to `requirements.txt`. Created `tests/conftest.py` with fixtures. Implemented initial unit tests for `storage`, `lifecycle`, and `workflow` modules in `tests/` directory (Task 4.1). Fixed test failures and deprecation warnings. Added 80% coverage goal to `unit_testing_plan.md`.
 - **Environment:** Created `.venv` and installed dependencies.
+- **Testing (Refinement):** Added tests for error handling paths in `opscore/lifecycle.py`, increasing its coverage from 76% to 100% (Refinement of Task 4.1). Fixed test failures related to mocking and serialization.
+
+ - **API Testing:** Created `tests/test_api.py` and implemented tests for `/health`, `/v1/opscore/agent/{agentId}/state`, and `/v1/opscore/agent/{agentId}/workflow` endpoints using `TestClient` and `unittest.mock.patch`. Achieved 89% coverage for `opscore/api.py`. Fixed `NameError` in `api.py` and assertion errors in tests. (Refinement of Task 4.1 / Part of Task 4.2).
 
 ## 3. Next Steps (Next Session)
-- **Improve Test Coverage:** Focus on increasing test coverage for `lifecycle.py` (currently 76%) to meet the 80% goal. Analyze missing lines from coverage report and add targeted tests. (Part of Task 4.1 refinement).
-- **API Testing:** Implement unit/integration tests for the API endpoints in `api.py` using `TestClient` (Part of Task 4.2 or refinement of 4.1).
 - **Implement Agent State Check:** Implement the agent state check logic in `workflow.process_next_task` (currently bypassed).
 - **Implement Custom Exceptions:** Define and use custom exceptions (`exceptions.py`) for better error handling.
 - **Refine Workflow Definition:** Define and validate the schema for `WorkflowDefinition.tasks` more strictly in `models.py`.
 
 ## 4. Active Decisions & Considerations
-- **Test Coverage:** `lifecycle.py` coverage (76%) is slightly below the 80% target. Overall coverage (71%) needs improvement, primarily by testing `api.py`.
+- **Test Coverage:** `lifecycle.py` coverage is 100%. `api.py` coverage is 89%. Overall coverage is significantly improved but can be further enhanced, especially for `agentkit_client.py` and `logging_config.py`.
 - **AgentKit Endpoint Dependency:** `GET /v1/agents` endpoint confirmation still pending for full AgentKit integration.
 - **Persistent Queue:** The task queue (`_task_queue` in `workflow.py`) remains in-memory.
 - **Error Handling:** Placeholder error handling needs to be made more robust. Custom exceptions are needed.
