@@ -1,24 +1,27 @@
-# Active Context: Ops-Core Python Module (Updated - 2025-04-17 @ 21:07)
+# Active Context: Ops-Core Python Module (Updated - 2025-04-18 @ 06:09)
 
 ## 1. Current Work Focus
 - **Completed:** Phase 1 (Initialization & Research), Phase 2 foundational components (Lifecycle, Workflow, Storage, Logging, Models, API state endpoint), Task 2.4 (Session Tracking), Task 2.7 (Error Handling Placeholders), AgentKit Client Placeholder, Dispatcher Connection, Task 4.1 (Initial Unit Tests), API Testing (Task 4.1/4.2), Agent State Check (Task 2.6 refinement), Task 2.14 (Custom Exceptions).
 - **Focus:** Implementing core features, establishing initial test coverage, and improving error handling.
 
 ## 2. Recent Changes & Decisions (This Session)
-- **Workflow (Agent State Check):** Implemented agent state checking in `workflow.process_next_task` using `asyncio.to_thread` to call the synchronous `lifecycle.get_state`. Tasks are now only dispatched if the agent state is 'idle'; otherwise, they are re-enqueued (basic re-queue for now) or failed if the state cannot be determined. Added corresponding unit tests in `tests/test_workflow.py`.
-- **Custom Exceptions (Task 2.14 - Completed):**
-    - Created `opscore/exceptions.py` with exception hierarchy (OpsCoreError, AgentNotFoundError, SessionNotFoundError, WorkflowDefinitionNotFoundError, InvalidStateError, StorageError, RegistrationError, WorkflowDefinitionError, TaskDispatchError, ConfigurationError).
-    - Refactored `opscore/lifecycle.py`, `opscore/workflow.py`, `opscore/storage.py`, and `opscore/api.py` to import and raise appropriate custom exceptions instead of generic ones (e.g., ValueError, IOError, KeyError).
-    - Updated tests in `tests/test_lifecycle.py`, `tests/test_workflow.py`, `tests/test_storage.py`, and `tests/test_api.py` to expect these custom exceptions and verify correct HTTP status code mappings.
+- **Task 3.4 (Partial): Mock AgentKit Integration:**
+    - Updated `docker-compose.yml` to include a mock `agentkit` service using `python:3.11-slim` image and installing FastAPI/Uvicorn.
+    - Created `mock_agentkit/main.py` implementing basic `GET /v1/agents`, `POST /v1/agents`, and `POST /v1/agents/{agentId}/run` endpoints.
+    - Configured Ops-Core service in `docker-compose.yml` to use the mock AgentKit via `AGENTKIT_API_URL=http://agentkit_service:80`.
+    - Created `tests/test_agentkit_integration.py` with initial tests for agent registration/discovery and task dispatch via the mock AgentKit. Tests are passing.
+    - Created `task_3.4_agentkit_integration_plan.md` to document the integration plan.
+- **Task Prioritization:** Updated `TASK.md`, `activeContext.md`, and `progress.md` to prioritize Task 3.4 (AgentKit Integration) before Task 3.1 (SDK Development).
 
 ## 3. Next Steps (Next Session)
-- **Integrate Ops-Core API with Python SDK (Task 3.1):** Develop helper functions to simplify API calls for registration, state update, and workflow trigger. (Next Action)
+- **Ensure all endpoints interoperate seamlessly with AgentKit’s integration interfaces (Task 3.4):** Continue integration testing, focusing on workflow scenarios involving state updates from the (mock) agent back to Ops-Core. Implement agent registration within Ops-Core based on polling AgentKit (or alternative mechanism). (Next Action)
+- **Integrate Ops-Core API with Python SDK (Task 3.1):** Develop helper functions to simplify API calls for registration, state update, and workflow trigger.
 - **Refine Workflow Definition:** Define and validate the schema for `WorkflowDefinition.tasks` more strictly in `models.py`.
 - **Refine Re-queue Logic:** Implement proper delay/backoff for re-queuing tasks when agents are busy (currently immediate re-queue).
 
 ## 4. Active Decisions & Considerations
 - **Test Coverage:** `lifecycle.py` coverage is 100%. `api.py` coverage is 89%. Overall coverage is significantly improved but can be further enhanced, especially for `agentkit_client.py`, `logging_config.py`, `workflow.py`, and `storage.py`. Need to run coverage report again after recent changes.
-- **AgentKit Endpoint Dependency:** `GET /v1/agents` endpoint confirmation still pending for full AgentKit integration.
+- **AgentKit Endpoint Dependency:** `GET /v1/agents` endpoint confirmation still pending for full AgentKit integration. Mock implementation exists, but real integration requires confirmation. Ops-Core currently lacks agent registration logic based on AgentKit discovery.
 - **Persistent Queue:** The task queue (`_task_queue` in `workflow.py`) remains in-memory.
 - **Error Handling:** Custom exception refactoring is complete. All core modules and tests updated to use custom exceptions.
 - **Agent State Check:** Implemented in `process_next_task`. Uses `asyncio.to_thread` for sync `get_state` call. Re-queues if not idle, fails if state unknown.

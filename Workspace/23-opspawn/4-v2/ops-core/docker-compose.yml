@@ -13,14 +13,22 @@ services:
     env_file:
       - .env # Load environment variables from .env file (create this file locally)
     # Environment variables can also be defined directly:
-    # environment:
-    #   - OPSCORE_API_KEY=your_secret_api_key_here # Example: Replace with value from .env
-    #   - AGENTKIT_API_URL=http://localhost:8001 # Example: Replace with actual AgentKit URL if running locally/dockerized
+    environment:
+      - OPSCORE_API_KEY=test-api-key # Example: Replace with value from .env
+      - AGENTKIT_API_URL=http://agentkit_service:80 # Example: Replace with actual AgentKit URL if running locally/dockerized
     command: uvicorn opscore.api:app --host 0.0.0.0 --port 8000 --reload # Use --reload for development
 
-# Add other services here if needed (e.g., AgentKit, Redis)
-# agentkit:
-#   image: agentkit_image_name # Replace with actual image if available
+  agentkit:
+    image: python:3.11-slim
+    container_name: agentkit_service
+    ports:
+      - "8001:80" # Map host port 8001 to container port 80
+    environment:
+      - AGENTKIT_API_KEY=test-api-key
+    volumes:
+      - ./mock_agentkit:/app
+    working_dir: /app
+    command: bash -c "pip install fastapi uvicorn && uvicorn main:app --host 0.0.0.0 --port 80 --reload"
 #   container_name: agentkit_service
 #   ports:
 #     - "8001:8000" # Example port mapping for AgentKit
