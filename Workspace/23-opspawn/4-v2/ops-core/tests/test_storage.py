@@ -3,8 +3,9 @@ Unit tests for the opscore.storage module.
 """
 
 import pytest
-from opscore import storage, models
+from opscore import storage, models, exceptions # Import exceptions
 from datetime import datetime, timezone # Import timezone
+from unittest.mock import patch # Import patch
 
 # Fixtures from conftest.py are automatically available
 # Includes: clear_storage_before_each_test (autouse), valid_agent_info, valid_agent_state,
@@ -137,9 +138,9 @@ def test_create_read_session_success(valid_session_model):
     assert retrieved_session.model_dump() == valid_session_model.model_dump()
 
 def test_create_session_duplicate_id(valid_session_model):
-    """Test that creating a session with a duplicate ID raises ValueError."""
+    """Test that creating a session with a duplicate ID raises StorageError."""
     storage.create_session(valid_session_model)
-    with pytest.raises(ValueError, match=f"Session ID {valid_session_model.sessionId} already exists"):
+    with pytest.raises(exceptions.StorageError, match=f"Session ID {valid_session_model.sessionId} already exists"):
         storage.create_session(valid_session_model) # Try creating again
 
 def test_read_session_not_found():
@@ -175,15 +176,15 @@ def test_update_session_data_success(valid_session_model):
     assert retrieved_session.last_updated_time == update_time
 
 def test_update_session_data_not_found(valid_session_model):
-    """Test updating a non-existent session raises KeyError."""
-    with pytest.raises(KeyError, match="Session non_existent_session not found"):
+    """Test updating a non-existent session raises SessionNotFoundError."""
+    with pytest.raises(exceptions.SessionNotFoundError, match="Session non_existent_session not found"):
         storage.update_session_data("non_existent_session", {"status": "failed"})
 
 def test_update_session_data_invalid_data(valid_session_model):
-    """Test updating with invalid data raises ValueError (from Pydantic)."""
+    """Test updating with invalid data raises InvalidStateError (from Pydantic)."""
     session_id = valid_session_model.sessionId
     storage.create_session(valid_session_model)
-    with pytest.raises(ValueError): # Pydantic validation error becomes ValueError
+    with pytest.raises(exceptions.InvalidStateError, match="Invalid update data for session"): # Pydantic validation error becomes InvalidStateError
         storage.update_session_data(session_id, {"status": 123}) # Invalid type for status
 
 def test_delete_session(valid_session_model):
@@ -244,3 +245,50 @@ def test_clear_all_data(valid_agent_info, valid_session_model, valid_workflow_de
     assert storage.read_session(valid_session_model.sessionId) is None
     assert storage.read_workflow_definition(valid_workflow_def_model.id) is None
     assert storage.get_all_agent_registrations() == []
+
+# --- Storage Error Tests ---
+
+@pytest.mark.parametrize("save_func, model_instance, match_str", [
+    (storage.save_agent_registration, pytest.lazy_fixture('valid_agent_info'), "Failed to save registration"),
+    (storage.save_agent_state, pytest.lazy_fixture('valid_agent_state'), "Failed to save state"),
+    # create_session already tested for duplicate ID, testing generic error here
+    (storage.create_session, pytest.lazy_fixture('valid_session_model'), "Failed to create session"),
+    (storage.save_workflow_definition, pytest.lazy_fixture('valid_workflow_def_model'), "Failed to save workflow definition"),
+])
+@patch('threading.Lock.acquire', side_effect=RuntimeError("Simulated lock error"))
+def test_save_operations_storage_error(mock_lock, save_func, model_instance, match_str):
+    """Test that save/create operations raise StorageError on underlying exceptions."""
+    # Ensure prerequisite data exists if needed (e.g., for state saving)
+    if save_func == storage.save_agent_state:
+         # Need to bypass lock for prerequisite setup
+         with patch('threading.Lock.acquire', return_value=True), patch('threading.Lock.release', return_value=True):
+            # Ensure agent is registered before saving state
+            # Create a minimal valid AgentInfo for the prerequisite check
+            minimal_agent_info = models.AgentInfo(
+                agentId=model_instance.agentId,
+                agentName="test-prereq",
+                version="1.0",
+                contactEndpoint="http://localhost:1234"
+            )
+            storage.save_agent_registration(minimal_agent_info)
+
+    # For create_session, ensure the ID doesn't exist first to avoid the duplicate key error
+    if save_func == storage.create_session:
+        # Use a unique ID for this test run to avoid clashing with the duplicate test
+        model_instance = model_instance.model_copy(update={"sessionId": f"sess_{save_func.__name__}_error_test"})
+        storage._sessions.pop(model_instance.sessionId, None) # Remove if exists from previous tests
+
+    with pytest.raises(exceptions.StorageError, match=match_str):
+        save_func(model_instance)
+
+@patch('threading.Lock.acquire', side_effect=RuntimeError("Simulated lock error"))
+def test_update_session_data_storage_error(mock_lock, valid_session_model):
+    """Test update_session_data raises StorageError on underlying exceptions."""
+    # Need to successfully create the session first, bypassing the lock mock for setup
+    with patch('threading.Lock.acquire', return_value=True), patch('threading.Lock.release', return_value=True):
+         storage.create_session(valid_session_model)
+
+    # Now test the update with the lock failing
+    update_data = {"status": "failed", "last_updated_time": datetime.now(timezone.utc)}
+    with pytest.raises(exceptions.StorageError, match="Failed to update session"):
+        storage.update_session_data(valid_session_model.sessionId, update_data)

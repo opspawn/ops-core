@@ -14,7 +14,7 @@ from datetime import datetime, timezone # Already imported
 import threading
 
 from .models import AgentInfo, AgentState, WorkflowDefinition, WorkflowSession
-# from . import exceptions # Keep placeholder for now
+from . import exceptions # Import custom exceptions
 from .logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -41,9 +41,13 @@ def save_agent_registration(agent_info: AgentInfo):
     agent_id = agent_info.agentId
     logger.debug(f"Saving registration for agent {agent_id}")
     with _agent_registrations_lock:
-        # Store as dict for simplicity in this in-memory version
-        _agent_registrations[agent_id] = agent_info.model_dump(mode='json')
-    logger.info(f"Registration saved for agent {agent_id}")
+        try:
+            # Store as dict for simplicity in this in-memory version
+            _agent_registrations[agent_id] = agent_info.model_dump(mode='json')
+            logger.info(f"Registration saved for agent {agent_id}")
+        except Exception as e:
+            logger.error(f"Storage error during agent registration save for {agent_id}: {e}", exc_info=True)
+            raise exceptions.StorageError(f"Failed to save registration for agent {agent_id}", original_exception=e) from e
 
 def read_agent_registration(agent_id: str) -> Optional[AgentInfo]:
     """Retrieves agent registration details."""
@@ -95,14 +99,18 @@ def save_agent_state(agent_state: AgentState):
     with _agent_states_lock:
         if agent_id not in _agent_states:
             _agent_states[agent_id] = []
-        # Store as dict for simplicity in this in-memory version
-        _agent_states[agent_id].append(agent_state.model_dump(mode='json'))
-        # Optional: Limit history size if needed
+        try:
+            # Store as dict for simplicity in this in-memory version
+            _agent_states[agent_id].append(agent_state.model_dump(mode='json'))
+            # Optional: Limit history size if needed
         # MAX_HISTORY = 100
         # if len(_agent_states[agent_id]) > MAX_HISTORY:
-        #     logger.debug(f"Trimming state history for agent {agent_id}")
-        #     _agent_states[agent_id] = _agent_states[agent_id][-MAX_HISTORY:]
-    logger.info(f"State saved for agent {agent_id}")
+            #     logger.debug(f"Trimming state history for agent {agent_id}")
+            #     _agent_states[agent_id] = _agent_states[agent_id][-MAX_HISTORY:]
+            logger.info(f"State saved for agent {agent_id}")
+        except Exception as e:
+            logger.error(f"Storage error during agent state save for {agent_id}: {e}", exc_info=True)
+            raise exceptions.StorageError(f"Failed to save state for agent {agent_id}", original_exception=e) from e
 
 def read_latest_agent_state(agent_id: str) -> Optional[AgentState]:
     """Retrieves the most recent state for an agent."""
@@ -148,11 +156,15 @@ def create_session(session: WorkflowSession) -> None:
     with _sessions_lock:
         if session_id in _sessions:
             logger.error(f"Session creation failed: Session ID {session_id} already exists.")
-            # Consider raising a custom exception (e.g., DuplicateSessionError)
-            raise ValueError(f"Session ID {session_id} already exists.")
+            # Raise a specific storage error for duplicate keys
+            raise exceptions.StorageError(f"Session ID {session_id} already exists.")
         # Store the model directly
-        _sessions[session_id] = session
-    logger.info(f"Session {session_id} created successfully.")
+        try:
+            _sessions[session_id] = session
+            logger.info(f"Session {session_id} created successfully.")
+        except Exception as e:
+            logger.error(f"Storage error during session creation for {session_id}: {e}", exc_info=True)
+            raise exceptions.StorageError(f"Failed to create session {session_id}", original_exception=e) from e
 
 def read_session(session_id: str) -> Optional[WorkflowSession]:
     """Retrieves workflow session data by ID."""
@@ -180,14 +192,15 @@ def update_session_data(session_id: str, update_data: Dict[str, Any]) -> Workflo
         The updated WorkflowSession object.
 
     Raises:
-        KeyError: If the session_id is not found.
-        ValueError: If update_data is missing required fields or has invalid types.
+        exceptions.SessionNotFoundError: If the session_id is not found.
+        exceptions.InvalidStateError: If update_data results in an invalid session state.
+        exceptions.StorageError: If there's an issue saving the updated session.
     """
     logger.debug(f"Attempting to update session {session_id} with data: {update_data}")
     with _sessions_lock:
         if session_id not in _sessions:
             logger.error(f"Update failed: Session {session_id} not found.")
-            raise KeyError(f"Session {session_id} not found.")
+            raise exceptions.SessionNotFoundError(session_id)
 
         existing_session = _sessions[session_id]
 
@@ -206,9 +219,12 @@ def update_session_data(session_id: str, update_data: Dict[str, Any]) -> Workflo
             _sessions[session_id] = updated_session # Replace the old session object
             logger.info(f"Session {session_id} updated successfully.")
             return updated_session
-        except Exception as e: # Catch Pydantic validation errors etc.
+        except ValueError as e: # Catch Pydantic validation errors specifically
             logger.error(f"Failed to update session {session_id} due to invalid data: {e}", exc_info=True)
-            raise ValueError(f"Invalid update data for session {session_id}: {e}") from e
+            raise exceptions.InvalidStateError(f"Invalid update data for session {session_id}: {e}") from e
+        except Exception as e: # Catch other potential storage errors
+            logger.error(f"Storage error during session update for {session_id}: {e}", exc_info=True)
+            raise exceptions.StorageError(f"Failed to update session {session_id}", original_exception=e) from e
 
 def delete_session(session_id: str) -> bool:
     """Deletes a workflow session by ID."""
@@ -229,9 +245,13 @@ def save_workflow_definition(definition: WorkflowDefinition):
     workflow_id = definition.id
     logger.debug(f"Saving workflow definition {workflow_id}")
     with _workflow_definitions_lock:
-        # Store as dict
-        _workflow_definitions[workflow_id] = definition.model_dump(mode='json')
-    logger.info(f"Workflow definition {workflow_id} saved.")
+        try:
+            # Store as dict
+            _workflow_definitions[workflow_id] = definition.model_dump(mode='json')
+            logger.info(f"Workflow definition {workflow_id} saved.")
+        except Exception as e:
+            logger.error(f"Storage error saving workflow definition {workflow_id}: {e}", exc_info=True)
+            raise exceptions.StorageError(f"Failed to save workflow definition {workflow_id}", original_exception=e) from e
 
 def read_workflow_definition(workflow_id: str) -> Optional[WorkflowDefinition]:
     """Retrieves a workflow definition."""

@@ -13,7 +13,7 @@ from typing import Dict, Any, Optional, List, Union
 
 # Placeholder imports - replace with actual implementations
 from . import storage, models, lifecycle # Import storage, models, and lifecycle
-# from . import exceptions # TODO: Define custom exceptions later
+from . import exceptions # Import custom exceptions
 from .logging_config import get_logger
 from .agentkit_client import dispatch_task_to_agentkit # Import the placeholder client function
 
@@ -39,7 +39,7 @@ def load_workflow_template(template_content: str, format: str = 'yaml') -> Dict[
         A dictionary representing the parsed workflow definition.
 
     Raises:
-        ValueError: If the format is invalid or parsing fails.
+        exceptions.WorkflowDefinitionError: If the format is invalid or parsing fails.
     """
     logger.info(f"Loading workflow template (format: {format})")
     try:
@@ -57,7 +57,7 @@ def load_workflow_template(template_content: str, format: str = 'yaml') -> Dict[
         return definition
     except (yaml.YAMLError, json.JSONDecodeError, ValueError) as e:
         logger.error(f"Failed to load workflow template: {e}", exc_info=True)
-        raise ValueError(f"Failed to parse workflow template: {e}") from e
+        raise exceptions.WorkflowDefinitionError(f"Failed to parse workflow template: {e}", original_exception=e) from e
 
 def create_workflow(definition: Dict[str, Any]) -> str:
     """
@@ -86,7 +86,7 @@ def create_workflow(definition: Dict[str, Any]) -> str:
         workflow_model = models.WorkflowDefinition(**definition)
     except Exception as e: # Catch Pydantic validation errors
         logger.error(f"Invalid workflow definition structure provided: {e}", exc_info=True)
-        raise ValueError(f"Invalid workflow definition structure: {e}") from e
+        raise exceptions.WorkflowDefinitionError(f"Invalid workflow definition structure: {e}", original_exception=e) from e
 
     # Store definition using storage module
     try:
@@ -94,8 +94,7 @@ def create_workflow(definition: Dict[str, Any]) -> str:
         logger.info(f"Workflow definition '{workflow_id}' created and saved.")
     except Exception as e:
         logger.error(f"Failed to save workflow definition {workflow_id}: {e}", exc_info=True)
-        # TODO: Define specific storage exception
-        raise IOError(f"Failed to save workflow definition {workflow_id}")
+        raise exceptions.StorageError(f"Failed to save workflow definition {workflow_id}", original_exception=e) from e
 
     return workflow_id
 
@@ -129,7 +128,7 @@ def enqueue_task(task_data: Dict[str, Any]):
         task_data: Dictionary representing the task.
 
     Raises:
-        ValueError: If task_data fails validation against models.Task.
+        exceptions.InvalidStateError: If task_data fails validation against models.Task.
     """
     logger.info(f"Attempting to enqueue task for agent {task_data.get('agentId', 'N/A')}, workflow {task_data.get('workflowId')}")
 
@@ -142,7 +141,7 @@ def enqueue_task(task_data: Dict[str, Any]):
         validated_task_data = task_model.model_dump()
     except Exception as e: # Catch Pydantic validation errors
         logger.error(f"Invalid task data provided for enqueue: {e}", exc_info=True)
-        raise ValueError(f"Invalid task data: {e}")
+        raise exceptions.InvalidStateError(f"Invalid task data: {e}") from e
 
     # TODO: Persist task to a reliable queue (e.g., Redis list, Celery) instead of just in-memory deque
     _task_queue.append(validated_task_data) # Add validated data to the queue
@@ -244,11 +243,17 @@ async def dispatch_task(agent_id: str, task_data: Dict[str, Any]):
         # task_data['status'] = 'dispatched'
         # update_task_in_storage(task_data) # Requires task persistence logic
     except ConnectionError as e: # Catch specific errors raised by the client placeholder
+         error_msg = f"AgentKit Connection Error: {e}"
          logger.error(f"Connection error dispatching task '{task_identifier}' to agent {agent_id} via AgentKit: {e}", exc_info=True)
-         handle_task_failure(task_data, f"AgentKit Connection Error: {e}")
+         # TODO: Consider raising TaskDispatchError here instead of just handling failure?
+         # raise exceptions.TaskDispatchError(agent_id, task_identifier, error_msg, original_exception=e) from e
+         handle_task_failure(task_data, error_msg)
     except Exception as e: # Catch other potential exceptions from client/network
+        error_msg = f"Dispatch Error: {e}"
         logger.error(f"Failed to dispatch task '{task_identifier}' to agent {agent_id} via AgentKit: {e}", exc_info=True)
-        handle_task_failure(task_data, f"Dispatch Error: {e}")
+        # TODO: Consider raising TaskDispatchError here instead of just handling failure?
+        # raise exceptions.TaskDispatchError(agent_id, task_identifier, error_msg, original_exception=e) from e
+        handle_task_failure(task_data, error_msg)
 
 
 # --- Error Handling & Retry ---

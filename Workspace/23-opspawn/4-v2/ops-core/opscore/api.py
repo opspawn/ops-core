@@ -19,7 +19,7 @@ load_dotenv()
 from . import models # Import models
 from . import lifecycle, workflow, storage # Import lifecycle, workflow, storage modules
 from .models import AgentStateUpdatePayload, StatusResponse, ErrorResponse, WorkflowTriggerRequest, WorkflowTriggerResponse, WorkflowDefinition
-# from . import config, exceptions
+from . import exceptions # Import custom exceptions
 from .logging_config import get_logger, setup_logging
 
 # Setup logging as early as possible
@@ -104,12 +104,18 @@ async def update_agent_state(
         logger.info(f"Successfully processed state update for agent {agent_id}")
         # Use the standard response model
         return models.StatusResponse(message="State update accepted")
-    except Exception as e: # TODO: Replace with specific exceptions from lifecycle module
-        logger.error(f"Error processing state update for agent {agent_id}: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Internal server error processing state update." # Avoid leaking exception details
-        )
+    except exceptions.AgentNotFoundError as e:
+        logger.warning(f"Agent not found during state update: {e}")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except exceptions.InvalidStateError as e:
+        logger.warning(f"Invalid state data during state update for agent {agent_id}: {e}")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except exceptions.StorageError as e:
+        logger.error(f"Storage error processing state update for agent {agent_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Storage error processing state update.")
+    except Exception as e:
+        logger.error(f"Unexpected error processing state update for agent {agent_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error processing state update.")
 
 @app.post(
     "/v1/opscore/agent/{agent_id}/workflow",
@@ -130,13 +136,7 @@ async def trigger_workflow(
     """
     logger.info(f"Workflow trigger request received for agent {agent_id}")
 
-    # 1. Verify Agent Exists
-    if not storage.agent_exists(agent_id):
-        logger.error(f"Cannot trigger workflow: Agent {agent_id} not found.")
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Agent not found: {agent_id}"
-        )
+    # Agent existence will be checked implicitly when starting the session later.
 
     # 2. Get or Create Workflow Definition
     workflow_def = None
@@ -145,11 +145,12 @@ async def trigger_workflow(
         if trigger_request.workflowDefinitionId:
             workflow_id = trigger_request.workflowDefinitionId
             logger.debug(f"Attempting to use existing workflow definition ID: {workflow_id}")
-            # Retrieve definition from storage (assuming it returns the model or dict)
-            workflow_def_data = storage.read_workflow_definition(workflow_id)
+            # Retrieve definition from storage
+            workflow_def_data = storage.read_workflow_definition(workflow_id) # Returns model or None
             if not workflow_def_data:
                  logger.error(f"Workflow definition not found for ID: {workflow_id}")
-                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Workflow definition not found: {workflow_id}")
+                 # Raise our custom exception, let the handler below catch it
+                 raise exceptions.WorkflowDefinitionNotFoundError(workflow_id)
             # Assuming storage returns the model directly now
             workflow_def = workflow_def_data
 
@@ -167,7 +168,9 @@ async def trigger_workflow(
         else:
             # This case should be prevented by the Pydantic validator, but handle defensively
             logger.error("Workflow trigger request missing both definition ID and inline definition.")
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing workflowDefinitionId or workflowDefinition")
+            # Raise a more specific error if needed, but Pydantic validation should catch this first.
+            # For consistency, let's use InvalidStateError or a new dedicated one like InvalidRequestError if created.
+            raise exceptions.InvalidStateError("Missing workflowDefinitionId or workflowDefinition")
 
         if not workflow_def or not workflow_id:
              # Should not happen if logic above is correct
@@ -175,21 +178,35 @@ async def trigger_workflow(
 
     except HTTPException:
         raise # Re-raise HTTP exceptions directly
+    except exceptions.WorkflowDefinitionNotFoundError as e:
+        logger.warning(f"Workflow definition not found: {e}")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except exceptions.StorageError as e:
+        logger.error(f"Storage error processing workflow definition for agent {agent_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Storage error processing workflow definition.")
+    except exceptions.InvalidStateError as e: # Catch potential error from the defensive check above
+         logger.error(f"Invalid workflow trigger request for agent {agent_id}: {e}", exc_info=True)
+         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
-        logger.error(f"Error processing workflow definition for agent {agent_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error processing workflow definition")
+        logger.error(f"Unexpected error processing workflow definition for agent {agent_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error processing workflow definition.")
 
     # 3. Start Workflow Session
     try:
         session = lifecycle.start_session(agent_id=agent_id, workflow_id=workflow_id)
         logger.info(f"Started session {session.sessionId} for workflow {workflow_id} on agent {agent_id}")
-    except ValueError as e: # Catch agent not found or duplicate session from lifecycle
-         logger.error(f"Failed to start session for workflow {workflow_id} on agent {agent_id}: {e}", exc_info=True)
-         # Distinguish between agent not found (already checked) and other errors
-         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Failed to start session: {e}")
-    except Exception as e:
-        logger.error(f"Failed to start session for workflow {workflow_id} on agent {agent_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to start workflow session")
+    except exceptions.AgentNotFoundError as e:
+         logger.error(f"Failed to start session: Agent {agent_id} not found. Detail: {e}", exc_info=False) # Log less verbosely
+         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except exceptions.StorageError as e: # Catch storage errors during session creation
+         logger.error(f"Storage error starting session for workflow {workflow_id} on agent {agent_id}: {e}", exc_info=True)
+         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to start session due to storage issue.")
+    except exceptions.OpsCoreError as e: # Catch other specific OpsCore errors
+        logger.error(f"OpsCore error starting session for workflow {workflow_id} on agent {agent_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to start workflow session: {e}")
+    except Exception as e: # Catch unexpected errors
+        logger.error(f"Unexpected error starting session for workflow {workflow_id} on agent {agent_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Unexpected error starting workflow session")
 
     # 4. Enqueue the First Task
     try:
@@ -219,11 +236,21 @@ async def trigger_workflow(
         workflow.enqueue_task(task_instance_data)
         logger.info(f"Enqueued first task {task_id} for session {session.sessionId}")
 
-    except Exception as e:
-        logger.error(f"Failed to enqueue first task for session {session.sessionId}: {e}", exc_info=True)
+    except exceptions.InvalidStateError as e: # Catch validation errors from enqueue_task
+        error_msg = f"Failed to enqueue first task due to invalid data: {e}"
+        logger.error(f"{error_msg} for session {session.sessionId}", exc_info=True)
         # Attempt to mark session as failed
         try:
-            lifecycle.update_session(session.sessionId, models.SessionUpdate(status="failed", error=f"Failed to enqueue first task: {e}"))
+            lifecycle.update_session(session.sessionId, models.SessionUpdate(status="failed", error=error_msg))
+        except Exception as update_err:
+             logger.error(f"Additionally failed to update session {session.sessionId} status after enqueue error: {update_err}")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error_msg)
+    except Exception as e: # Catch other potential errors during enqueue
+        error_msg = f"Failed to enqueue first task: {e}"
+        logger.error(f"{error_msg} for session {session.sessionId}", exc_info=True)
+        # Attempt to mark session as failed
+        try:
+            lifecycle.update_session(session.sessionId, models.SessionUpdate(status="failed", error=error_msg))
         except Exception as update_err:
              logger.error(f"Additionally failed to update session {session.sessionId} status after enqueue error: {update_err}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to enqueue first task")

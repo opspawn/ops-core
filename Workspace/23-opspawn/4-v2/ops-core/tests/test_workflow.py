@@ -3,7 +3,7 @@ Unit tests for the opscore.workflow module.
 """
 
 import pytest
-from opscore import workflow, storage, models, lifecycle
+from opscore import workflow, storage, models, lifecycle, exceptions # Import exceptions
 from collections import deque
 import yaml
 import json
@@ -71,15 +71,15 @@ def test_load_workflow_template_invalid_format():
         workflow.load_workflow_template("<xml></xml>", format='xml')
 
 def test_load_workflow_template_invalid_yaml_syntax():
-    """Test loading YAML with invalid syntax raises ValueError."""
+    """Test loading YAML with invalid syntax raises WorkflowDefinitionError."""
     # Example of truly invalid YAML syntax (e.g., unclosed bracket or bad flow)
     invalid_yaml_syntax = "key: [value1, value2"
-    with pytest.raises(ValueError, match="Failed to parse workflow template"):
+    with pytest.raises(exceptions.WorkflowDefinitionError, match="Failed to parse workflow template"):
         workflow.load_workflow_template(invalid_yaml_syntax, format='yaml')
 
 def test_load_workflow_template_invalid_json_content():
-    """Test loading invalid JSON content raises ValueError."""
-    with pytest.raises(ValueError, match="Failed to parse workflow template"):
+    """Test loading invalid JSON content raises WorkflowDefinitionError."""
+    with pytest.raises(exceptions.WorkflowDefinitionError, match="Failed to parse workflow template"):
         workflow.load_workflow_template('{"id": "test", "tasks": [}', format='json')
 
 def test_create_workflow_success(valid_workflow_def_dict):
@@ -107,6 +107,29 @@ def test_create_workflow_generate_id():
     assert retrieved_def.id == workflow_id
     assert retrieved_def.name == "Generate ID Test"
 
++def test_create_workflow_invalid_structure():
++    """Test creating a workflow with invalid definition structure raises WorkflowDefinitionError."""
++    invalid_definition = {
++        "id": "wf_invalid_struct",
++        "name": "Invalid",
++        "tasks": "not a list" # Invalid type for tasks
++    }
++    with pytest.raises(exceptions.WorkflowDefinitionError, match="Invalid workflow definition structure"):
++        workflow.create_workflow(invalid_definition)
++
++@pytest.mark.parametrize("storage_exception", [
++    IOError("Disk full"),
++    exceptions.StorageError("Simulated storage issue")
++])
++def test_create_workflow_storage_failure(mocker, valid_workflow_def_dict, storage_exception):
++    """Test creating a workflow raises StorageError on storage failure."""
++    mock_save = mocker.patch('opscore.storage.save_workflow_definition', side_effect=storage_exception)
++
++    with pytest.raises(exceptions.StorageError, match="Failed to save workflow definition"):
++        workflow.create_workflow(valid_workflow_def_dict)
++
++    mock_save.assert_called_once()
++
 def test_get_workflow_definition_success(valid_workflow_def_model):
     """Test retrieving an existing workflow definition."""
     storage.save_workflow_definition(valid_workflow_def_model) # Save first
@@ -146,12 +169,12 @@ def test_enqueue_task_success(valid_task_data_dict):
     assert enqueued_task['workflowId'] == valid_task_data_dict['workflowId']
 
 def test_enqueue_task_invalid_data():
-    """Test enqueuing invalid task data raises ValueError."""
+    """Test enqueuing invalid task data raises InvalidStateError."""
     invalid_task_data = {
         "workflowId": "wf_test",
         # Missing required fields like taskId, sessionId, agentId, taskDefinitionId
     }
-    with pytest.raises(ValueError, match="Invalid task data"):
+    with pytest.raises(exceptions.InvalidStateError, match="Invalid task data"):
         workflow.enqueue_task(invalid_task_data)
 
 def test_dequeue_task_success(valid_task_data_dict):

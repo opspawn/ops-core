@@ -10,8 +10,8 @@ from typing import Dict, Any, Optional, List
 
 # Placeholder imports - replace with actual implementations
 from . import storage
+from . import exceptions # Import custom exceptions
 from .models import AgentInfo, AgentRegistrationDetails, AgentState, WorkflowSession, SessionUpdate
-# from . import exceptions # TODO: Define custom exceptions later
 from .logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -29,9 +29,8 @@ def register_agent(agent_details: AgentRegistrationDetails) -> AgentInfo:
         The AgentInfo object representing the registered agent.
 
     Raises:
-        ValueError: If agent_details are invalid (handled by Pydantic).
-        IOError: If storage fails.
-        # exceptions.RegistrationError: If registration fails.
+        pydantic.ValidationError: If agent_details are invalid.
+        exceptions.RegistrationError: If storage fails during registration.
     """
     agent_name = agent_details.agentName
     logger.info(f"Attempting to register agent: {agent_name}")
@@ -53,8 +52,7 @@ def register_agent(agent_details: AgentRegistrationDetails) -> AgentInfo:
         logger.info(f"Agent '{agent_name}' registered successfully with ID: {agent_id}")
     except Exception as e:
         logger.error(f"Failed to save registration for agent {agent_id}: {e}", exc_info=True)
-        # TODO: Define a specific registration/storage exception?
-        raise IOError(f"Failed to save registration for agent {agent_id}") from e
+        raise exceptions.RegistrationError(f"Failed to save registration for agent {agent_id}", original_exception=e) from e
 
     return agent_info
 
@@ -71,15 +69,15 @@ def set_state(agent_id: str, new_state: str, details: Optional[Dict[str, Any]] =
         timestamp: Optional ISO 8601 timestamp string of when the state occurred.
 
     Raises:
-        # exceptions.AgentNotFoundError: If the agent_id is not found.
-        # exceptions.InvalidStateError: If the new_state is not a valid state.
+        exceptions.AgentNotFoundError: If the agent_id is not found.
+        exceptions.InvalidStateError: If the new_state data is invalid (e.g., Pydantic validation).
+        exceptions.StorageError: If saving the state to storage fails.
     """
     logger.info(f"Setting state for agent {agent_id} to '{new_state}'")
     # Validate agent_id exists using storage module (read operation)
     if not storage.read_agent_registration(agent_id):
         logger.error(f"Attempted to set state for unknown agent ID: {agent_id}")
-        # raise exceptions.AgentNotFoundError(agent_id) # TODO: Use custom exception
-        raise ValueError(f"Agent not found: {agent_id}")
+        raise exceptions.AgentNotFoundError(agent_id)
 
     # TODO: Validate new_state against allowed states (defined in models?)
 
@@ -104,7 +102,7 @@ def set_state(agent_id: str, new_state: str, details: Optional[Dict[str, Any]] =
         )
     except Exception as e: # Catch potential Pydantic validation errors
         logger.error(f"Failed to create AgentState model for agent {agent_id}: {e}", exc_info=True)
-        raise ValueError(f"Invalid state data provided: {e}") from e
+        raise exceptions.InvalidStateError(f"Invalid state data provided: {e}") from e
 
     # Store the state update using the storage module
     try:
@@ -112,8 +110,7 @@ def set_state(agent_id: str, new_state: str, details: Optional[Dict[str, Any]] =
         logger.info(f"State for agent {agent_id} updated to '{new_state}'")
     except Exception as e:
         logger.error(f"Failed to save state for agent {agent_id} to storage: {e}", exc_info=True)
-        # TODO: Define a specific storage exception?
-        raise IOError(f"Failed to save state for agent {agent_id}") from e
+        raise exceptions.StorageError(f"Failed to save state for agent {agent_id}", original_exception=e) from e
 
 
 def get_state(agent_id: str) -> Optional[AgentState]:
@@ -151,16 +148,16 @@ def start_session(agent_id: str, workflow_id: str) -> WorkflowSession:
         The created WorkflowSession object.
 
     Raises:
-        ValueError: If the agent_id is not found or session creation fails.
-        IOError: If storage fails.
-        # exceptions.AgentNotFoundError: If the agent_id is not found.
+        exceptions.AgentNotFoundError: If the agent_id is not found.
+        exceptions.OpsCoreError: If the session object cannot be initialized.
+        exceptions.StorageError: If saving the session to storage fails.
     """
     logger.info(f"Attempting to start new session for agent {agent_id}, workflow {workflow_id}")
 
     # Validate agent_id exists
     if not storage.read_agent_registration(agent_id):
         logger.error(f"Cannot start session: Agent {agent_id} not found.")
-        raise ValueError(f"Agent not found: {agent_id}")
+        raise exceptions.AgentNotFoundError(agent_id)
 
     # Create session object (generates its own ID and timestamps)
     try:
@@ -171,7 +168,7 @@ def start_session(agent_id: str, workflow_id: str) -> WorkflowSession:
         )
     except Exception as e: # Should not happen with these args, but good practice
         logger.error(f"Failed to create WorkflowSession model: {e}", exc_info=True)
-        raise ValueError(f"Failed to initialize session object: {e}") from e
+        raise exceptions.OpsCoreError(f"Failed to initialize session object: {e}") from e
 
     # Store session data using storage module
     try:
@@ -179,10 +176,10 @@ def start_session(agent_id: str, workflow_id: str) -> WorkflowSession:
         logger.info(f"Session {session.sessionId} started successfully for agent {agent_id}, workflow {workflow_id}")
     except ValueError as e: # Catch potential duplicate ID error from storage
         logger.error(f"Failed to create session in storage: {e}", exc_info=True)
-        raise ValueError(f"Failed to create session: {e}") from e
+        raise exceptions.StorageError(f"Failed to create session: {e}", original_exception=e) from e
     except Exception as e:
         logger.error(f"Failed to save session {session.sessionId} to storage: {e}", exc_info=True)
-        raise IOError(f"Failed to save session {session.sessionId}") from e
+        raise exceptions.StorageError(f"Failed to save session {session.sessionId}", original_exception=e) from e
 
     return session
 
@@ -198,9 +195,9 @@ def update_session(session_id: str, update_payload: SessionUpdate) -> WorkflowSe
         The updated WorkflowSession object.
 
     Raises:
-        ValueError: If the session_id is not found or update data is invalid.
-        IOError: If storage fails.
-        # exceptions.SessionNotFoundError: If the session_id is not found.
+        exceptions.SessionNotFoundError: If the session_id is not found.
+        exceptions.InvalidStateError: If the update data is invalid.
+        exceptions.StorageError: If updating the session in storage fails.
     """
     logger.info(f"Attempting to update session {session_id}")
 
@@ -212,7 +209,7 @@ def update_session(session_id: str, update_payload: SessionUpdate) -> WorkflowSe
         # Optionally return the existing session without hitting storage
         existing_session = storage.read_session(session_id)
         if not existing_session:
-             raise ValueError(f"Session not found: {session_id}")
+             raise exceptions.SessionNotFoundError(session_id)
         return existing_session
 
 
@@ -232,13 +229,13 @@ def update_session(session_id: str, update_payload: SessionUpdate) -> WorkflowSe
         return updated_session
     except KeyError: # Raised by storage.update_session_data if session_id not found
         logger.error(f"Update failed: Session {session_id} not found.")
-        raise ValueError(f"Session not found: {session_id}")
+        raise exceptions.SessionNotFoundError(session_id)
     except ValueError as e: # Raised by storage.update_session_data for invalid data
         logger.error(f"Update failed for session {session_id} due to invalid data: {e}", exc_info=True)
-        raise ValueError(f"Invalid update data for session {session_id}: {e}") from e
+        raise exceptions.InvalidStateError(f"Invalid update data for session {session_id}: {e}") from e
     except Exception as e:
         logger.error(f"Failed to update session {session_id} in storage: {e}", exc_info=True)
-        raise IOError(f"Failed to update session {session_id}") from e
+        raise exceptions.StorageError(f"Failed to update session {session_id}", original_exception=e) from e
 
 
 def get_session(session_id: str) -> Optional[WorkflowSession]:
