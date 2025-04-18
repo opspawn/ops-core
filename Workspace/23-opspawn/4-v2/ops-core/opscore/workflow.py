@@ -181,26 +181,34 @@ async def process_next_task():
             # TODO: Handle error (e.g., move to dead-letter queue)
             return
 
-        # TODO: Check agent state/availability via lifecycle module before dispatching?
-        # current_state = await lifecycle.get_state_async(agent_id) # Assuming an async version exists
-        # if current_state and current_state.state == 'idle':
-        #     logger.debug(f"Agent {agent_id} is idle. Proceeding with dispatch.")
-        #     await dispatch_task(agent_id, task_data)
-        # elif current_state:
-        #     logger.warning(f"Agent {agent_id} is not idle (state: {current_state.state}). Re-enqueuing task.")
-        #     # TODO: Implement re-enqueue logic with potential delay
-        #     enqueue_task(task_data) # Re-add to the end of the queue for now
-        # else:
-        #     logger.error(f"Could not determine state for agent {agent_id}. Cannot dispatch task.")
-        #     # TODO: Decide how to handle this - fail task? Re-enqueue?
-
-        # Simple dispatch for now (bypassing state check)
-        logger.debug(f"Bypassing agent state check for now. Dispatching task for agent {agent_id}.")
+        # Check agent state/availability via lifecycle module before dispatching
         try:
-            await dispatch_task(agent_id, task_data)
+            # Use asyncio.to_thread to call the sync function from async context
+            current_state = await asyncio.to_thread(lifecycle.get_state, agent_id)
         except Exception as e:
-            # Error handling is done within dispatch_task, but log here if needed
-            logger.error(f"Error occurred during dispatch process for task {task_data.get('taskId', 'Unknown')} for agent {agent_id}: {e}", exc_info=False) # Avoid double logging stack trace if handled below
+            logger.error(f"Error retrieving state for agent {agent_id}: {e}", exc_info=True)
+            # Fail the task if state retrieval fails
+            handle_task_failure(task_data, f"Failed to retrieve agent state: {e}")
+            return # Stop processing this task
+
+        if current_state:
+            if current_state.state == 'idle':
+                logger.debug(f"Agent {agent_id} is idle. Proceeding with dispatch.")
+                try:
+                    await dispatch_task(agent_id, task_data)
+                except Exception as e:
+                    # Error handling is mostly within dispatch_task, but log context here
+                    logger.error(f"Error occurred during dispatch process for task {task_data.get('taskId', 'Unknown')} for agent {agent_id}: {e}", exc_info=False)
+                    # Failure handling is triggered within dispatch_task if needed
+            else:
+                # Agent is not idle (active, error, initializing, finished, etc.)
+                logger.warning(f"Agent {agent_id} is not idle (state: {current_state.state}). Re-enqueuing task {task_data.get('taskId', 'Unknown')}.")
+                # TODO: Implement re-enqueue logic with potential delay/backoff later
+                enqueue_task(task_data) # Re-add to the end of the queue for now
+        else:
+            # State not found for agent (agent unknown or never reported state)
+            logger.error(f"Could not determine state for agent {agent_id}. Failing task {task_data.get('taskId', 'Unknown')}.")
+            handle_task_failure(task_data, f"Agent state not found for agent {agent_id}")
     else:
         logger.debug("No tasks in queue to process.")
 

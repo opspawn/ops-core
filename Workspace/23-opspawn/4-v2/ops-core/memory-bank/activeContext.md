@@ -1,4 +1,4 @@
-# Active Context: Ops-Core Python Module (Updated - 2025-04-17 @ 18:01)
+# Active Context: Ops-Core Python Module (Updated - 2025-04-17 @ 18:26)
 
 ## 1. Current Work Focus
 - **Completed:** Phase 1 (Initialization & Research), Phase 2 foundational components (Lifecycle, Workflow, Storage, Logging, Models, API state endpoint), Task 2.4 (Session Tracking), Task 2.7 (Error Handling Placeholders), AgentKit Client Placeholder, Dispatcher Connection, Task 4.1 (Initial Unit Tests).
@@ -16,18 +16,19 @@
 - **Testing (Refinement):** Added tests for error handling paths in `opscore/lifecycle.py`, increasing its coverage from 76% to 100% (Refinement of Task 4.1). Fixed test failures related to mocking and serialization.
 
  - **API Testing:** Created `tests/test_api.py` and implemented tests for `/health`, `/v1/opscore/agent/{agentId}/state`, and `/v1/opscore/agent/{agentId}/workflow` endpoints using `TestClient` and `unittest.mock.patch`. Achieved 89% coverage for `opscore/api.py`. Fixed `NameError` in `api.py` and assertion errors in tests. (Refinement of Task 4.1 / Part of Task 4.2).
++ - **Workflow (Agent State Check):** Implemented agent state checking in `workflow.process_next_task` using `asyncio.to_thread` to call the synchronous `lifecycle.get_state`. Tasks are now only dispatched if the agent state is 'idle'; otherwise, they are re-enqueued (basic re-queue for now) or failed if the state cannot be determined. Added corresponding unit tests in `tests/test_workflow.py`.
 
 ## 3. Next Steps (Next Session)
-- **Implement Agent State Check:** Implement the agent state check logic in `workflow.process_next_task` (currently bypassed).
-- **Implement Custom Exceptions:** Define and use custom exceptions (`exceptions.py`) for better error handling.
+- **Implement Custom Exceptions:** Define and use custom exceptions (`exceptions.py`) for better error handling. (Next Task)
 - **Refine Workflow Definition:** Define and validate the schema for `WorkflowDefinition.tasks` more strictly in `models.py`.
+- **Refine Re-queue Logic:** Implement proper delay/backoff for re-queuing tasks when agents are busy (currently immediate re-queue).
 
 ## 4. Active Decisions & Considerations
 - **Test Coverage:** `lifecycle.py` coverage is 100%. `api.py` coverage is 89%. Overall coverage is significantly improved but can be further enhanced, especially for `agentkit_client.py` and `logging_config.py`.
 - **AgentKit Endpoint Dependency:** `GET /v1/agents` endpoint confirmation still pending for full AgentKit integration.
 - **Persistent Queue:** The task queue (`_task_queue` in `workflow.py`) remains in-memory.
 - **Error Handling:** Placeholder error handling needs to be made more robust. Custom exceptions are needed.
-- **Agent State Check:** Still bypassed in `process_next_task`.
+- **Agent State Check:** Implemented in `process_next_task`. Uses `asyncio.to_thread` for sync `get_state` call. Re-queues if not idle, fails if state unknown.
 
 ## 5. Important Patterns & Preferences
 - Continue following Python best practices (PEP8, type hints).
@@ -43,3 +44,4 @@
 - Refactoring storage and lifecycle layers to use Pydantic models improved consistency.
 - Careful attention to dependencies (like `pytest-cov`) and virtual environments is crucial.
 - Mocking and async testing patterns established.
+- Using `asyncio.to_thread` to bridge async/sync code where necessary (e.g., `process_next_task` calling `lifecycle.get_state`).

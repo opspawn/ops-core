@@ -7,6 +7,9 @@ from opscore import workflow, storage, models, lifecycle
 from collections import deque
 import yaml
 import json
+import asyncio # Import asyncio
+from unittest.mock import MagicMock # Import MagicMock for creating state objects
+from datetime import datetime, timezone # Ensure timezone is imported
 
 # Fixtures from conftest.py are automatically available
 
@@ -238,28 +241,128 @@ def test_fallback_task_logs_and_attempts_session_update(mocker, caplog, valid_ta
 # --- Async Task Dispatching Tests (using mocker and pytest-asyncio) ---
 
 @pytest.mark.asyncio
-async def test_process_next_task_dequeues_and_dispatches(mocker, valid_task_data_dict):
-    """Test process_next_task successfully dequeues and calls dispatch."""
-    # Mock dequeue to return our task
+async def test_process_next_task_agent_idle(mocker, valid_task_data_dict):
+    """Test process_next_task dispatches when agent state is 'idle'."""
+    agent_id = valid_task_data_dict['agentId']
+    idle_state = models.AgentState(agentId=agent_id, state='idle', timestamp=datetime.now(timezone.utc))
+
+    # Mock dependencies
     mock_dequeue = mocker.patch('opscore.workflow.dequeue_task', return_value=valid_task_data_dict)
-    # Mock dispatch_task (async function)
+    mock_to_thread = mocker.patch('asyncio.to_thread', return_value=idle_state) # Mock asyncio.to_thread
+    mock_get_state = mocker.patch('opscore.lifecycle.get_state') # Mock the original sync function
     mock_dispatch = mocker.patch('opscore.workflow.dispatch_task', new_callable=mocker.AsyncMock)
+    mock_enqueue = mocker.patch('opscore.workflow.enqueue_task')
+    mock_handle_failure = mocker.patch('opscore.workflow.handle_task_failure')
 
     await workflow.process_next_task()
 
     mock_dequeue.assert_called_once()
-    mock_dispatch.assert_called_once_with(valid_task_data_dict['agentId'], valid_task_data_dict) # Use assert_called_once
+    mock_to_thread.assert_called_once_with(mock_get_state, agent_id) # Verify to_thread was called correctly
+    mock_dispatch.assert_called_once_with(agent_id, valid_task_data_dict)
+    mock_enqueue.assert_not_called()
+    mock_handle_failure.assert_not_called()
+
+@pytest.mark.asyncio
+async def test_process_next_task_agent_not_idle(mocker, valid_task_data_dict):
+    """Test process_next_task re-enqueues when agent state is not 'idle'."""
+    agent_id = valid_task_data_dict['agentId']
+    active_state = models.AgentState(agentId=agent_id, state='active', timestamp=datetime.now(timezone.utc))
+
+    # Mock dependencies
+    mock_dequeue = mocker.patch('opscore.workflow.dequeue_task', return_value=valid_task_data_dict)
+    mock_to_thread = mocker.patch('asyncio.to_thread', return_value=active_state)
+    mock_get_state = mocker.patch('opscore.lifecycle.get_state')
+    mock_dispatch = mocker.patch('opscore.workflow.dispatch_task', new_callable=mocker.AsyncMock)
+    mock_enqueue = mocker.patch('opscore.workflow.enqueue_task')
+    mock_handle_failure = mocker.patch('opscore.workflow.handle_task_failure')
+
+    await workflow.process_next_task()
+
+    mock_dequeue.assert_called_once()
+    mock_to_thread.assert_called_once_with(mock_get_state, agent_id)
+    mock_dispatch.assert_not_called()
+    mock_enqueue.assert_called_once_with(valid_task_data_dict) # Task should be re-enqueued
+    mock_handle_failure.assert_not_called()
+
+@pytest.mark.asyncio
+async def test_process_next_task_agent_state_none(mocker, valid_task_data_dict):
+    """Test process_next_task fails task when agent state is None (not found)."""
+    agent_id = valid_task_data_dict['agentId']
+
+    # Mock dependencies
+    mock_dequeue = mocker.patch('opscore.workflow.dequeue_task', return_value=valid_task_data_dict)
+    mock_to_thread = mocker.patch('asyncio.to_thread', return_value=None) # Simulate state not found
+    mock_get_state = mocker.patch('opscore.lifecycle.get_state')
+    mock_dispatch = mocker.patch('opscore.workflow.dispatch_task', new_callable=mocker.AsyncMock)
+    mock_enqueue = mocker.patch('opscore.workflow.enqueue_task')
+    mock_handle_failure = mocker.patch('opscore.workflow.handle_task_failure')
+
+    await workflow.process_next_task()
+
+    mock_dequeue.assert_called_once()
+    mock_to_thread.assert_called_once_with(mock_get_state, agent_id)
+    mock_dispatch.assert_not_called()
+    mock_enqueue.assert_not_called()
+    mock_handle_failure.assert_called_once_with(valid_task_data_dict, f"Agent state not found for agent {agent_id}")
+
+@pytest.mark.asyncio
+async def test_process_next_task_get_state_error(mocker, valid_task_data_dict):
+    """Test process_next_task fails task when get_state raises an exception."""
+    agent_id = valid_task_data_dict['agentId']
+    error_message = "Database connection error"
+
+    # Mock dependencies
+    mock_dequeue = mocker.patch('opscore.workflow.dequeue_task', return_value=valid_task_data_dict)
+    # Mock asyncio.to_thread to raise the exception when called
+    mock_to_thread = mocker.patch('asyncio.to_thread', side_effect=IOError(error_message))
+    mock_get_state = mocker.patch('opscore.lifecycle.get_state') # Still need to mock the target function
+    mock_dispatch = mocker.patch('opscore.workflow.dispatch_task', new_callable=mocker.AsyncMock)
+    mock_enqueue = mocker.patch('opscore.workflow.enqueue_task')
+    mock_handle_failure = mocker.patch('opscore.workflow.handle_task_failure')
+
+    await workflow.process_next_task()
+
+    mock_dequeue.assert_called_once()
+    mock_to_thread.assert_called_once_with(mock_get_state, agent_id)
+    mock_dispatch.assert_not_called()
+    mock_enqueue.assert_not_called()
+    mock_handle_failure.assert_called_once_with(valid_task_data_dict, f"Failed to retrieve agent state: {error_message}")
+
 
 @pytest.mark.asyncio
 async def test_process_next_task_empty_queue(mocker):
     """Test process_next_task does nothing when queue is empty."""
     mock_dequeue = mocker.patch('opscore.workflow.dequeue_task', return_value=None)
     mock_dispatch = mocker.patch('opscore.workflow.dispatch_task', new_callable=mocker.AsyncMock)
+    mock_to_thread = mocker.patch('asyncio.to_thread') # Mock to_thread as well
 
     await workflow.process_next_task()
 
     mock_dequeue.assert_called_once()
-    mock_dispatch.assert_not_called() # Use assert_not_called
+    mock_to_thread.assert_not_called() # Should not be called if dequeue returns None
+    mock_dispatch.assert_not_called()
+
+@pytest.mark.asyncio
+async def test_process_next_task_missing_agent_id(mocker, caplog):
+    """Test process_next_task logs error and returns if task data lacks agentId."""
+    task_without_agent_id = {
+        "taskId": "task_no_agent",
+        "workflowId": "wf_test",
+        "sessionId": "sess_test",
+        "taskDefinitionId": "def_test",
+        "payload": {}
+    }
+    mock_dequeue = mocker.patch('opscore.workflow.dequeue_task', return_value=task_without_agent_id)
+    mock_dispatch = mocker.patch('opscore.workflow.dispatch_task', new_callable=mocker.AsyncMock)
+    mock_to_thread = mocker.patch('asyncio.to_thread')
+
+    with caplog.at_level("ERROR"):
+        await workflow.process_next_task()
+
+    mock_dequeue.assert_called_once()
+    mock_to_thread.assert_not_called()
+    mock_dispatch.assert_not_called()
+    assert f"Dequeued task data missing 'agentId': {task_without_agent_id}" in caplog.text
 
 @pytest.mark.asyncio
 async def test_dispatch_task_success(mocker, valid_task_data_dict):
