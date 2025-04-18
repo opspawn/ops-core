@@ -18,40 +18,61 @@ logger = get_logger(__name__)
 
 # --- Agent Registration ---
 
-def register_agent(agent_details: AgentRegistrationDetails) -> AgentInfo:
-    """
-    Registers a new agent with Ops-Core.
+def register_agent(agent_id: str, details: AgentRegistrationDetails) -> AgentInfo:
+    """ # Corrected indentation (4 spaces)
+    Registers a new agent with Ops-Core using the provided agent ID. # Corrected indentation (4 spaces)
 
-    Args:
-        agent_details: Pydantic model containing agent metadata.
+    Args: # Corrected indentation (4 spaces)
+        agent_id: The unique ID for the agent (provided by AgentKit). # Corrected indentation (8 spaces)
+        details: Pydantic model containing agent metadata (name, version, etc.). # Corrected indentation (8 spaces)
 
-    Returns:
-        The AgentInfo object representing the registered agent.
+    Returns: # Corrected indentation (4 spaces)
+        The AgentInfo object representing the registered agent. # Corrected indentation (8 spaces)
 
-    Raises:
-        pydantic.ValidationError: If agent_details are invalid.
-        exceptions.RegistrationError: If storage fails during registration.
-    """
-    agent_name = agent_details.agentName
-    logger.info(f"Attempting to register agent: {agent_name}")
+    Raises: # Corrected indentation (4 spaces)
+        pydantic.ValidationError: If agent_details are invalid. # Corrected indentation (8 spaces)
+        exceptions.RegistrationError: If storage fails during registration. # Corrected indentation (8 spaces)
+    """ # Corrected indentation (4 spaces)
+    agent_name = details.agentName # Corrected indentation (4 spaces)
+    logger.info(f"Attempting to register agent: {agent_name} with ID: {agent_id}") # Corrected indentation (4 spaces)
 
-    # Generate a unique agent ID
-    agent_id = f"agent_{uuid.uuid4()}"
+    # Validate agent_id format? (Optional, assume valid string for now) # Corrected indentation (4 spaces)
+    if not agent_id: # Corrected indentation (4 spaces)
+        raise ValueError("agent_id cannot be empty") # Corrected indentation (8 spaces)
 
-    # Create the full AgentInfo object including generated ID and timestamp
-    # Pydantic validation happens implicitly if agent_details is already the correct type
-    agent_info = AgentInfo(
-        **agent_details.model_dump(),
-        agentId=agent_id,
-        registrationTime=datetime.now(timezone.utc) # Use timezone-aware
-    )
+    # Create the full AgentInfo object using provided ID and details # Corrected indentation (4 spaces)
+    try: # Corrected indentation (4 spaces)
+        agent_info = AgentInfo( # Corrected indentation (8 spaces)
+            **details.model_dump(), # Spread the details # Corrected indentation (12 spaces)
+            agentId=agent_id, # Use the provided agent_id # Corrected indentation (12 spaces)
+            registrationTime=datetime.now(timezone.utc) # Use timezone-aware # Corrected indentation (12 spaces)
+        ) # Corrected indentation (8 spaces)
+    except Exception as e: # Catch potential Pydantic validation errors # Corrected indentation (4 spaces)
+        logger.error(f"Failed to create AgentInfo model for agent {agent_id}: {e}", exc_info=True) # Corrected indentation (8 spaces)
+        # Use a more specific exception if available, or re-raise validation error # Corrected indentation (8 spaces)
+        raise exceptions.RegistrationError(f"Invalid agent details provided for {agent_id}", original_exception=e) from e # Corrected indentation (8 spaces)
 
-    # Store agent registration data using the storage module
-    try:
-        storage.save_agent_registration(agent_info)
-        logger.info(f"Agent '{agent_name}' registered successfully with ID: {agent_id}")
-    except Exception as e:
-        logger.error(f"Failed to save registration for agent {agent_id}: {e}", exc_info=True)
+    # Store agent registration data using the storage module # Corrected indentation (4 spaces)
+    try: # Corrected indentation (4 spaces)
+        storage.save_agent_registration(agent_info) # Corrected indentation (8 spaces)
+        logger.info(f"Agent '{agent_name}' registration data saved successfully with ID: {agent_id}") # Corrected indentation (8 spaces)
+
+        # Set initial state after successful registration storage # Corrected indentation (8 spaces)
+        try: # Corrected indentation (8 spaces)
+            set_state(agent_id=agent_id, new_state="UNKNOWN", details={"reason": "Initial registration"}) # Corrected indentation (12 spaces)
+            logger.info(f"Initial state 'UNKNOWN' set for agent {agent_id}") # Corrected indentation (12 spaces)
+        except Exception as state_e: # Corrected indentation (8 spaces)
+            # Log error setting initial state, but don't fail the registration itself? # Corrected indentation (12 spaces)
+            # Or should we attempt to rollback/delete the registration? # Corrected indentation (12 spaces)
+            # For now, log error and continue. Consider cleanup later. # Corrected indentation (12 spaces)
+            logger.error(f"Failed to set initial state for newly registered agent {agent_id}: {state_e}", exc_info=True) # Corrected indentation (12 spaces)
+            # Optionally raise a specific warning/error or just proceed # Corrected indentation (12 spaces)
+
+    except exceptions.AgentAlreadyExistsError as e: # Catch specific error from storage # Corrected indentation (4 spaces)
+        logger.warning(f"Attempted to register agent {agent_id} which already exists.") # Corrected indentation (8 spaces)
+        raise e # Re-raise for the API layer to handle # Corrected indentation (8 spaces)
+    except Exception as e: # Corrected indentation (4 spaces)
+        logger.error(f"Failed to save registration for agent {agent_id}: {e}", exc_info=True) # Corrected indentation (8 spaces)
         raise exceptions.RegistrationError(f"Failed to save registration for agent {agent_id}", original_exception=e) from e
 
     return agent_info

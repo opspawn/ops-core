@@ -13,9 +13,10 @@ import uuid
 # --- Agent Registration Models ---
 
 class AgentRegistrationDetails(BaseModel):
-    """Details provided when an agent registers (or discovered from AgentKit)."""
-    agentName: str
-    version: str
+    """Details provided when an agent registers (or discovered from AgentKit).""" # Corrected indentation (4 spaces)
+    agentId: str # Unique ID for the agent (defined by AgentKit) # Corrected indentation (4 spaces)
+    agentName: str # Corrected indentation (4 spaces)
+    version: str # Corrected indentation (4 spaces)
     capabilities: List[str] = []
     contactEndpoint: HttpUrl # The agent's own API endpoint
     metadata: Dict[str, Any] = {}
@@ -24,6 +25,13 @@ class AgentInfo(AgentRegistrationDetails):
     """Internal representation of a registered agent."""
     agentId: str
     registrationTime: datetime = Field(default_factory=lambda: datetime.now(timezone.utc)) # Use timezone-aware
+
+# --- Agent Notification Model (from AgentKit Webhook) ---
+
+class AgentNotificationPayload(BaseModel):
+   """Payload expected from AgentKit webhook for agent registration/deregistration."""
+   event_type: str # e.g., "REGISTER", "DEREGISTER"
+   agent_details: AgentRegistrationDetails
 
 # --- Agent State Models ---
 

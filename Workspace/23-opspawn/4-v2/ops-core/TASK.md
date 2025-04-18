@@ -54,13 +54,13 @@ This TASK.md document provides a detailed, step-by-step checklist for developing
 
 ### Phase 3: Integration & Interface Development
 
-- [ ] **Task 3.4:** Ensure all endpoints interoperate seamlessly with AgentKit’s integration interfaces. (Partially Complete: Mock AgentKit setup in Docker and initial integration tests passing - 2025-04-18)
+- [ ] **Task 3.4:** Ensure all endpoints interoperate seamlessly with AgentKit’s integration interfaces. (Partially Complete: Implemented webhook registration mechanism, added GET state endpoint, wrote async integration tests. **Tests currently failing with ReadTimeout** - 2025-04-18)
 - [ ] **Task 3.1:** Integrate the Ops‑Core API endpoints with a Python SDK.
-  - *Subtask:* Develop helper functions to simplify API calls (registration, state update, workflow trigger).
+ - *Subtask:* Develop helper functions to simplify API calls (registration, state update, workflow trigger).
 - [ ] **Task 3.2:** Create a simple CLI application to interact with Ops‑Core endpoints.
   - *Commands:* Include options for agent registration, state update, and workflow initiation.
 - [ ] **Task 3.3:** Implement middleware for structured logging and standardized error handling across endpoints.
-- [ ] **Task 3.4:** Ensure all endpoints interoperate seamlessly with AgentKit’s integration interfaces.
+# - [ ] **Task 3.4:** Ensure all endpoints interoperate seamlessly with AgentKit’s integration interfaces. # Duplicate entry removed
 
 ---
 

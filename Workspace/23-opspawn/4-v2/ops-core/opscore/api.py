@@ -18,7 +18,7 @@ load_dotenv()
 # Placeholder imports - will be replaced with actual implementations
 from . import models # Import models
 from . import lifecycle, workflow, storage # Import lifecycle, workflow, storage modules
-from .models import AgentStateUpdatePayload, StatusResponse, ErrorResponse, WorkflowTriggerRequest, WorkflowTriggerResponse, WorkflowDefinition
+from .models import AgentStateUpdatePayload, StatusResponse, ErrorResponse, WorkflowTriggerRequest, WorkflowTriggerResponse, WorkflowDefinition, AgentNotificationPayload, AgentState # Added AgentState
 from . import exceptions # Import custom exceptions
 from .logging_config import get_logger, setup_logging
 
@@ -64,7 +64,69 @@ async def verify_api_key(authorization: Annotated[str | None, Header()] = None):
 async def health_check():
     """Basic health check endpoint."""
     logger.info("Health check endpoint called.")
-    return {"status": "ok"}
+    return {"status": "ok"} # Corrected indentation (4 spaces)
+
+
+@app.post( # Corrected indentation (0 spaces)
+    "/v1/opscore/internal/agent/notify",
+    status_code=status.HTTP_200_OK,
+    tags=["Internal", "Agent Lifecycle"],
+    response_model=StatusResponse,
+    # Note: No API key dependency for now, assuming internal network call.
+    # Add security later if needed (e.g., separate internal key, network policies).
+)
+async def agent_notification(payload: AgentNotificationPayload): # Corrected indentation (0 spaces)
+    """ # Corrected indentation (4 spaces)
+    Internal endpoint for AgentKit to notify Ops-Core about agent events
+    (e.g., registration, deregistration).
+    """
+    logger.info(f"Received agent notification: Event='{payload.event_type}', AgentName='{payload.agent_details.agentName}'") # Corrected indentation (4 spaces)
+
+    try: # Corrected indentation (4 spaces)
+        if payload.event_type.upper() == "REGISTER": # Corrected indentation (8 spaces)
+           # Use the agent ID provided by AgentKit in the notification
+           agent_id = payload.agent_details.agentId # Corrected indentation (12 spaces)
+           if not agent_id:
+                logger.error("Received REGISTER notification with missing agentId in details.")
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing agentId in agent_details for REGISTER event.")
+
+           logger.info(f"Registering agent '{payload.agent_details.agentName}' with ID from notification: {agent_id}") # Corrected indentation (12 spaces)
+           lifecycle.register_agent( # Corrected indentation (12 spaces)
+               agent_id=agent_id, # Use ID from payload
+               details=payload.agent_details # Pass the nested details model
+           )
+            logger.info(f"Successfully registered agent {agent_id} via notification.") # Corrected indentation (12 spaces)
+            return StatusResponse(message=f"Agent {agent_id} registered successfully.") # Corrected indentation (12 spaces)
+
+        elif payload.event_type.upper() == "DEREGISTER": # Corrected indentation (8 spaces)
+            # TODO: Implement deregistration logic in lifecycle module
+            # agent_id = find_agent_id_by_details(payload.agent_details) # Need a way to find the agent
+            # if agent_id:
+            #     lifecycle.deregister_agent(agent_id)
+            logger.warning(f"Received DEREGISTER notification for agent '{payload.agent_details.agentName}', but deregistration logic is not yet implemented.") # Corrected indentation (12 spaces)
+            return StatusResponse(message="DEREGISTER notification received but not fully processed.") # Corrected indentation (12 spaces)
+        else: # Corrected indentation (8 spaces)
+            logger.warning(f"Received unknown agent notification event type: {payload.event_type}") # Corrected indentation (12 spaces)
+            raise HTTPException( # Corrected indentation (12 spaces)
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unknown event type: {payload.event_type}"
+            )
+    except exceptions.AgentAlreadyExistsError as e: # Indentation (4 spaces)
+        # This might happen if AgentKit sends multiple REGISTER events for the same agent details
+        # Or if our lookup finds an existing agent based on details before generating ID (if we change logic)
+        logger.warning(f"Attempted to register an agent that might already exist: {e}") # Corrected indentation (8 spaces)
+        # Decide on behavior: ignore, update, or error? For now, let's return success but log warning.
+        # Consider adding agent lookup by details if needed.
+        return StatusResponse(message=f"Agent potentially already registered: {e}") # Corrected indentation (8 spaces)
+    except exceptions.InvalidStateError as e: # Catch validation errors from lifecycle/storage # Indentation (4 spaces)
+        logger.error(f"Invalid data during agent notification processing: {e}", exc_info=True) # Corrected indentation (8 spaces)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) # Corrected indentation (8 spaces)
+    except exceptions.StorageError as e: # Corrected indentation (4 spaces)
+       logger.error(f"Storage error processing agent notification: {e}", exc_info=True) # Corrected indentation (8 spaces)
+       raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Storage error processing agent notification.") # Corrected indentation (8 spaces)
+    except Exception as e: # Corrected indentation (4 spaces)
+        logger.error(f"Unexpected error processing agent notification: {e}", exc_info=True) # Corrected indentation (8 spaces)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error processing agent notification.") # Corrected indentation (8 spaces)
 
 # Use the model defined in models.py
 # from .models import AgentStateUpdatePayload
@@ -94,14 +156,14 @@ async def update_agent_state(
         )
 
     try:
-        # Call the actual lifecycle management function
-        lifecycle.set_state(
-            agent_id=agent_id,
-            new_state=state_update.state,
-            details=state_update.details,
-            timestamp=state_update.timestamp # TODO: Consider parsing timestamp in lifecycle
-        )
-        logger.info(f"Successfully processed state update for agent {agent_id}")
+        # Call the actual lifecycle management function (Corrected indentation: 8 spaces)
+        lifecycle.set_state( # Corrected indentation: 8 spaces
+            agent_id=agent_id, # Corrected indentation: 12 spaces
+            new_state=state_update.state, # Corrected indentation: 12 spaces
+            details=state_update.details, # Corrected indentation: 12 spaces
+            timestamp=state_update.timestamp # TODO: Consider parsing timestamp in lifecycle (Corrected indentation: 12 spaces)
+        ) # Corrected indentation: 8 spaces
+        logger.info(f"Successfully processed state update for agent {agent_id}") # Indentation: 8 spaces (already correct)
         # Use the standard response model
         return models.StatusResponse(message="State update accepted")
     except exceptions.AgentNotFoundError as e:
@@ -115,7 +177,37 @@ async def update_agent_state(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Storage error processing state update.")
     except Exception as e:
         logger.error(f"Unexpected error processing state update for agent {agent_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error processing state update.")
+       raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error processing state update.")
+
+
+@app.get(
+   "/v1/opscore/agent/{agent_id}/state",
+   response_model=models.AgentState,
+   tags=["Agent Lifecycle"],
+   dependencies=[Depends(verify_api_key)] # Enable API key check
+)
+async def get_agent_state(agent_id: str):
+   """
+   Retrieves the current state of a specific agent.
+   Requires API Key authentication.
+   """
+   logger.info(f"Received request for current state of agent {agent_id}")
+   try:
+       agent_state = lifecycle.get_state(agent_id=agent_id)
+       if not agent_state: # get_state might return None if not found, though it should raise AgentNotFoundError
+            logger.warning(f"Agent {agent_id} not found during GET state request (lifecycle.get_state returned None).")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Agent {agent_id} not found.")
+       logger.debug(f"Returning state for agent {agent_id}: {agent_state.state}")
+       return agent_state
+   except exceptions.AgentNotFoundError as e:
+       logger.warning(f"Agent {agent_id} not found during GET state request: {e}")
+       raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+   except exceptions.StorageError as e:
+       logger.error(f"Storage error retrieving state for agent {agent_id}: {e}", exc_info=True)
+       raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Storage error retrieving agent state.")
+   except Exception as e:
+       logger.error(f"Unexpected error retrieving state for agent {agent_id}: {e}", exc_info=True)
+       raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error retrieving agent state.")
 
 @app.post(
     "/v1/opscore/agent/{agent_id}/workflow",

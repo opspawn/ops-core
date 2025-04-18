@@ -28,7 +28,7 @@ services:
     volumes:
       - ./mock_agentkit:/app
     working_dir: /app
-    command: bash -c "pip install fastapi uvicorn && uvicorn main:app --host 0.0.0.0 --port 80 --reload"
+    command: bash -c "pip install fastapi uvicorn httpx && uvicorn main:app --host 0.0.0.0 --port 80 --reload" # Added httpx
 #   container_name: agentkit_service
 #   ports:
 #     - "8001:8000" # Example port mapping for AgentKit
