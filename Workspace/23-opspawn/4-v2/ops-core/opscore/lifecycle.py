@@ -43,9 +43,8 @@ def register_agent(agent_id: str, details: AgentRegistrationDetails) -> AgentInf
     # Create the full AgentInfo object using provided ID and details # Corrected indentation (4 spaces)
     try: # Corrected indentation (4 spaces)
         agent_info = AgentInfo( # Corrected indentation (8 spaces)
-            **details.model_dump(), # Spread the details # Corrected indentation (12 spaces)
-            agentId=agent_id, # Use the provided agent_id # Corrected indentation (12 spaces)
-            registrationTime=datetime.now(timezone.utc) # Use timezone-aware # Corrected indentation (12 spaces)
+            **details.model_dump(), # Spread the details (includes agentId)
+            registrationTime=datetime.now(timezone.utc) # Set registration time to now
         ) # Corrected indentation (8 spaces)
     except Exception as e: # Catch potential Pydantic validation errors # Corrected indentation (4 spaces)
         logger.error(f"Failed to create AgentInfo model for agent {agent_id}: {e}", exc_info=True) # Corrected indentation (8 spaces)

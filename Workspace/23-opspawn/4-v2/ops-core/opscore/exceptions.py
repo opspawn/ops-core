@@ -58,3 +58,8 @@ class TaskDispatchError(OpsCoreError):
 class ConfigurationError(OpsCoreError):
     """Raised for configuration-related errors."""
     pass
+class AgentAlreadyExistsError(RegistrationError):
+    """Raised when attempting to register an agent that already exists."""
+    def __init__(self, agent_id: str):
+        self.agent_id = agent_id
+        super().__init__(f"Agent {agent_id} already exists.")

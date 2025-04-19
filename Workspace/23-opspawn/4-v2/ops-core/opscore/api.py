@@ -95,8 +95,8 @@ async def agent_notification(payload: AgentNotificationPayload): # Corrected ind
                agent_id=agent_id, # Use ID from payload
                details=payload.agent_details # Pass the nested details model
            )
-            logger.info(f"Successfully registered agent {agent_id} via notification.") # Corrected indentation (12 spaces)
-            return StatusResponse(message=f"Agent {agent_id} registered successfully.") # Corrected indentation (12 spaces)
+           logger.info(f"Successfully registered agent {agent_id} via notification.") # Corrected indentation (12 spaces)
+           return StatusResponse(message=f"Agent {agent_id} registered successfully.") # Corrected indentation (12 spaces)
 
         elif payload.event_type.upper() == "DEREGISTER": # Corrected indentation (8 spaces)
             # TODO: Implement deregistration logic in lifecycle module
@@ -177,7 +177,7 @@ async def update_agent_state(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Storage error processing state update.")
     except Exception as e:
         logger.error(f"Unexpected error processing state update for agent {agent_id}: {e}", exc_info=True)
-       raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error processing state update.")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error processing state update.")
 
 
 @app.get(
@@ -205,6 +205,8 @@ async def get_agent_state(agent_id: str):
    except exceptions.StorageError as e:
        logger.error(f"Storage error retrieving state for agent {agent_id}: {e}", exc_info=True)
        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Storage error retrieving agent state.")
+   except HTTPException: # Explicitly re-raise HTTPExceptions
+       raise
    except Exception as e:
        logger.error(f"Unexpected error retrieving state for agent {agent_id}: {e}", exc_info=True)
        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error retrieving agent state.")
