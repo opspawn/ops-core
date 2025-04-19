@@ -1,24 +1,25 @@
-# Active Context: Ops-Core Python Module (Updated - 2025-04-18 @ 19:59)
+# Active Context: Ops-Core Python Module (Updated - 2025-04-19 @ 07:41)
 
 ## 1. Current Work Focus
 - **Completed:** Phase 1 (Initialization & Research), Phase 2 foundational components (Lifecycle, Workflow, Storage, Logging, Models, API state endpoint), Task 2.4 (Session Tracking), Task 2.7 (Error Handling Placeholders), AgentKit Client Placeholder, Dispatcher Connection, Task 4.1 (Initial Unit Tests), API Testing (Task 4.1/4.2), Agent State Check (Task 2.6 refinement), Task 2.14 (Custom Exceptions).
 - **Focus:** Implementing core features, establishing initial test coverage, and improving error handling.
 
 ## 2. Recent Changes & Decisions (This Session)
-- **Task 3.4 (Completed): AgentKit Integration - Webhook Approach:**
-   - Switched from polling to a webhook-based approach for agent discovery/registration.
-   - Added internal API endpoint `/v1/opscore/internal/agent/notify` to `opscore/api.py` to receive notifications.
-   - Updated `opscore/models.py` (`AgentRegistrationDetails`, `AgentNotificationPayload`) to support webhook payload.
-   - Updated `opscore/lifecycle.py` (`register_agent`) to accept `agent_id` from webhook and set initial state.
-   - Updated `mock_agentkit/main.py` to send webhook notification on `POST /v1/agents` and simulate state update callbacks on `POST /v1/agents/{agentId}/run`.
-   - Added `httpx` dependency to `requirements.txt` and `docker-compose.yml` (for mock service).
-   - Added `GET /v1/opscore/agent/{agent_id}/state` endpoint to `opscore/api.py`.
-   - Rewrote `tests/test_agentkit_integration.py` using `pytest-asyncio` and `httpx` to test webhook registration and state update callbacks.
-   - Created `task_3.4_webhook_plan.md` and `AGENTKIT_REQUIREMENTS.md`.
-   - **Current Status:** Debugged and fixed integration test failures. Issues included running tests outside Docker network, multiple `IndentationError`s in `api.py`, a `TypeError` in `lifecycle.py` (duplicate `agentId`), a missing `AgentAlreadyExistsError` in `exceptions.py`, and incorrect exception handling in `api.py`. Tests now pass when run inside the `opscore_service` container.
+- **Task 3.1 (Completed): Integrate Ops-Core API with Python SDK:**
+   - Created new `opscore_sdk/` directory.
+   - Implemented synchronous (`OpsCoreClientSync`) and asynchronous (`OpsCoreClientAsync`) clients in `opscore_sdk/client.py` using `httpx`.
+   - Defined SDK-specific models (`StateUpdatePayload`, `WorkflowTriggerPayload`, etc.) in `opscore_sdk/models.py` using `TypedDict`.
+   - Defined SDK-specific exceptions (`OpsCoreSDKError`, `OpsCoreApiError`, etc.) in `opscore_sdk/exceptions.py`.
+   - Added basic usage documentation in `opscore_sdk/README.md`.
+   - Added `pytest-httpx` dependency to `requirements.txt`.
+   - Created unit tests for both clients in `tests/test_opscore_sdk/test_client.py`, mocking API calls with `pytest-httpx`.
+   - Resolved issues with `pytest-asyncio` fixture handling for async client tests.
+   - Created `sdk_development_plan.md`.
+- **Task 3.4 (Completed - Previous Session): AgentKit Integration - Webhook Approach:**
+   - (Details from previous session remain relevant)
 
 ## 3. Next Steps (Next Session)
-- **Integrate Ops-Core API with Python SDK (Task 3.1):** Develop helper functions to simplify API calls for registration, state update, and workflow trigger. (Next Action)
+- **Create CLI Application (Task 3.2):** Develop a simple CLI application to interact with Ops‑Core endpoints using the new SDK. (Next Action)
 - **Refine Workflow Definition:** Define and validate the schema for `WorkflowDefinition.tasks` more strictly in `models.py`.
 - **Refine Re-queue Logic:** Implement proper delay/backoff for re-queuing tasks when agents are busy (currently immediate re-queue).
 
@@ -50,4 +51,5 @@
 - Refactored integration tests to use `pytest-asyncio` and `httpx`.
 - Implemented webhook pattern for inter-service communication (mock AgentKit -> Ops-Core).
 - Debugging integration tests highlighted the importance of running tests within the correct Docker network context.
-- Resolved chained errors involving indentation, type errors, missing exceptions, and incorrect exception handling logic.
+- Resolved chained errors involving indentation, type errors, missing exceptions, and incorrect exception handling logic (Previous Session).
+- Learned nuances of testing async fixtures with `pytest-asyncio` and `pytest-httpx`, requiring specific fixture patterns to avoid `AttributeError` and cleanup warnings.
