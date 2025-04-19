@@ -1,10 +1,10 @@
-# Active Context: Ops-Core Python Module (Updated - 2025-04-19 @ 07:41)
+# Active Context: Ops-Core Python Module (Updated - 2025-04-19 @ 08:39)
 
 ## 1. Current Work Focus
 - **Completed:** Phase 1 (Initialization & Research), Phase 2 foundational components (Lifecycle, Workflow, Storage, Logging, Models, API state endpoint), Task 2.4 (Session Tracking), Task 2.7 (Error Handling Placeholders), AgentKit Client Placeholder, Dispatcher Connection, Task 4.1 (Initial Unit Tests), API Testing (Task 4.1/4.2), Agent State Check (Task 2.6 refinement), Task 2.14 (Custom Exceptions).
 - **Focus:** Implementing core features, establishing initial test coverage, and improving error handling.
 
-## 2. Recent Changes & Decisions (This Session)
+## 2. Recent Changes & Decisions (This Session - 2025-04-19)
 - **Task 3.1 (Completed): Integrate Ops-Core API with Python SDK:**
    - Created new `opscore_sdk/` directory.
    - Implemented synchronous (`OpsCoreClientSync`) and asynchronous (`OpsCoreClientAsync`) clients in `opscore_sdk/client.py` using `httpx`.
@@ -17,11 +17,20 @@
    - Created `sdk_development_plan.md`.
 - **Task 3.4 (Completed - Previous Session): AgentKit Integration - Webhook Approach:**
    - (Details from previous session remain relevant)
+- **Task 3.2 (Completed): Create CLI Application:**
+   - Created new `opscore_cli/` directory.
+   - Implemented CLI using `click` library.
+   - Added commands: `agent get-state`, `agent update-state`, `workflow trigger`.
+   - Added dependency `click` to `requirements.txt`.
+   - Created `opscore_cli/README.md`.
+   - Added unit tests in `tests/test_opscore_cli/` using `pytest` and `CliRunner`.
+   - Fixed test failures related to `ImportError` and `CliRunner` usage for `stderr`.
+
 
 ## 3. Next Steps (Next Session)
-- **Create CLI Application (Task 3.2):** Develop a simple CLI application to interact with Ops‑Core endpoints using the new SDK. (Next Action)
-- **Refine Workflow Definition:** Define and validate the schema for `WorkflowDefinition.tasks` more strictly in `models.py`.
-- **Refine Re-queue Logic:** Implement proper delay/backoff for re-queuing tasks when agents are busy (currently immediate re-queue).
+- **Implement Middleware (Task 3.3):** Implement middleware for structured logging and standardized error handling across API endpoints. (Next Action)
+- **Refine Workflow Definition:** Define and validate the schema for `WorkflowDefinition.tasks` more strictly in `models.py`. (Deferred)
+- **Refine Re-queue Logic:** Implement proper delay/backoff for re-queuing tasks when agents are busy (currently immediate re-queue). (Deferred)
 
 ## 4. Active Decisions & Considerations
 - **Test Coverage:** `lifecycle.py` coverage is 100%. `api.py` coverage is 89%. Overall coverage is significantly improved but can be further enhanced, especially for `agentkit_client.py`, `logging_config.py`, `workflow.py`, and `storage.py`. Need to run coverage report again after recent changes.
@@ -53,3 +62,5 @@
 - Debugging integration tests highlighted the importance of running tests within the correct Docker network context.
 - Resolved chained errors involving indentation, type errors, missing exceptions, and incorrect exception handling logic (Previous Session).
 - Learned nuances of testing async fixtures with `pytest-asyncio` and `pytest-httpx`, requiring specific fixture patterns to avoid `AttributeError` and cleanup warnings.
+- Learned correct usage of `click.testing.CliRunner` for capturing `stderr` (`mix_stderr=False` during initialization).
+- Ensured tests explicitly handle environment variables to avoid interference from the external shell environment.

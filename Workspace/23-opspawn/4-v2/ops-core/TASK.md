@@ -57,7 +57,7 @@ This TASK.md document provides a detailed, step-by-step checklist for developing
 - [X] **Task 3.4:** Ensure all endpoints interoperate seamlessly with AgentKit’s integration interfaces. (Completed: Debugged and fixed integration test failures related to webhook registration and state updates - 2025-04-18)
 - [X] **Task 3.1:** Integrate the Ops‑Core API endpoints with a Python SDK. (Completed: Created sync/async clients, models, exceptions, tests in `opscore_sdk/` - 2025-04-19)
  - *Subtask:* Develop helper functions to simplify API calls (state update, workflow trigger, get state).
-- [ ] **Task 3.2:** Create a simple CLI application to interact with Ops‑Core endpoints.
+- [X] **Task 3.2:** Create a simple CLI application to interact with Ops‑Core endpoints. (Completed: Created `opscore_cli/` with commands and unit tests - 2025-04-19)
   - *Commands:* Include options for agent registration, state update, and workflow initiation.
 - [ ] **Task 3.3:** Implement middleware for structured logging and standardized error handling across endpoints.
 # - [ ] **Task 3.4:** Ensure all endpoints interoperate seamlessly with AgentKit’s integration interfaces. # Duplicate entry removed

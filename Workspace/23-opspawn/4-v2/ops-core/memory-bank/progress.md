@@ -16,6 +16,7 @@
 - **Unit Tests:** Test suite expanded for storage, lifecycle, workflow, and API modules using pytest. Tests for lifecycle, workflow, storage updated for custom exceptions. (Need to re-run after recent changes).
 - **Integration Tests (Mock AgentKit):** Tests rewritten (`tests/test_agentkit_integration.py`) using `pytest-asyncio` and `httpx` to cover webhook registration and state update callbacks. **Now passing after debugging.**
 - **Python SDK (`opscore_sdk/`):** Sync and async clients implemented with basic API coverage (state update/get, workflow trigger). Unit tests added using `pytest-httpx`.
+- **CLI Application (`opscore_cli/`):** Basic CLI implemented using `click` with commands for state and workflow interaction. Unit tests added and passing.
 
 ## 2. What's Left to Build (Immediate Next Steps from `TASK.md`)
 - **Phase 2 Tasks:**
@@ -25,7 +26,7 @@
 - **Phase 3 Tasks:**
    - [X] Task 3.4: Ensure all endpoints interoperate seamlessly with AgentKit’s integration interfaces. (Completed: Debugged and fixed integration test failures related to webhook registration and state updates - 2025-04-18)
    - [X] Task 3.1: Integrate the Ops‑Core API endpoints with a Python SDK. (Completed: Created sync/async clients, models, exceptions, tests in `opscore_sdk/` - 2025-04-19)
-   - [ ] Task 3.2: Create a simple CLI application to interact with Ops‑Core endpoints.
+   - [X] Task 3.2: Create a simple CLI application to interact with Ops‑Core endpoints. (Completed: Created `opscore_cli/` with commands and unit tests - 2025-04-19)
     - [ ] Task 3.3: Implement middleware for structured logging and standardized error handling across endpoints.
 - **Phase 4 Tasks:**
     - [X] Task 4.1: Write unit tests for each subsystem using pytest. (Initial implementation complete; lifecycle coverage 100%, API coverage 89%).
@@ -37,7 +38,7 @@
 - **Backlog:** Persistent storage/queue, advanced debugging/security, async messaging, etc.
 
 ## 3. Current Status Overview
-- **Overall:** Core functionalities for lifecycle management and workflow orchestration are implemented with agent state checking and comprehensive custom exception handling. API endpoints for interaction are available. Webhook mechanism for AgentKit integration implemented. A basic Python SDK (`opscore_sdk/`) is now available for interacting with the API.
+- **Overall:** Core functionalities for lifecycle management and workflow orchestration are implemented with agent state checking and comprehensive custom exception handling. API endpoints for interaction are available. Webhook mechanism for AgentKit integration implemented. A basic Python SDK (`opscore_sdk/`) and a CLI (`opscore_cli/`) are now available for interacting with the API.
 - **Blockers/Dependencies:** None currently. Requirement for AgentKit webhook capability documented.
 
 ## 4. Known Issues
@@ -68,3 +69,4 @@
 - **[2025-04-18]** Refactored integration tests to use `pytest-asyncio` and `httpx`.
 - **[2025-04-18]** Debugged and fixed integration test failures (Task 3.4). Resolved issues related to Docker execution context, indentation errors, type errors, missing exceptions, and exception handling logic in `api.py`, `lifecycle.py`, and `exceptions.py`.
 - **[2025-04-19]** Created Python SDK (`opscore_sdk/`) with sync/async clients, models, exceptions, and unit tests using `pytest-httpx` (Task 3.1). Added `pytest-httpx` dependency. Resolved async fixture issues in tests.
+- **[2025-04-19]** Created CLI application (`opscore_cli/`) using `click` and added unit tests (Task 3.2). Fixed test failures related to imports and `CliRunner` usage.
