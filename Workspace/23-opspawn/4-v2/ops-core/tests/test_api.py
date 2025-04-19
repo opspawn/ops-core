@@ -12,7 +12,7 @@ from opscore import models
 from opscore import exceptions # Import custom exceptions
 
 # Create a TestClient instance
-client = TestClient(app)
+client = TestClient(app=app)
 
 # Fixtures from conftest.py are automatically available
 # Includes: clear_storage_before_each_test (autouse), valid_agent_reg_details,
@@ -140,7 +140,8 @@ def test_set_state_storage_error(mock_set_state):
    response = client.post(f"/v1/opscore/agent/{agent_id}/state", json=payload, headers=HEADERS)
    # Check the actual status code returned by the API's generic exception handler
    assert response.status_code == 500
-   assert "Storage error processing state update." in response.json()["detail"] # Specific message from handler
+   # Middleware now returns the raw exception string in the detail
+   assert response.json() == {"detail": "Storage error: Storage connection failed"}
    mock_set_state.assert_called_once()
 
 # --- Test POST /v1/opscore/agent/{agentId}/workflow Endpoint ---
@@ -382,9 +383,10 @@ def test_trigger_workflow_session_start_opscore_error( # Renamed for clarity
    payload = {"workflowDefinitionId": workflow_id}
 
    response = client.post(f"/v1/opscore/agent/{agent_id}/workflow", json=payload, headers=HEADERS)
-   # API maps generic OpsCoreError during session start to 500
+   # Middleware maps OpsCoreError to its status code (500 for base OpsCoreError)
    assert response.status_code == 500
-   assert f"Failed to start workflow session: {error_message}" in response.json()["detail"]
+   # Middleware now returns the raw exception string in the detail
+   assert response.json() == {"detail": error_message} # error_message = "Session creation conflict"
    mock_start_session.assert_called_once()
 
 @patch('opscore.api.lifecycle.start_session')
@@ -404,8 +406,10 @@ def test_trigger_workflow_session_start_storage_error( # Renamed for clarity
    payload = {"workflowDefinitionId": workflow_id}
 
    response = client.post(f"/v1/opscore/agent/{agent_id}/workflow", json=payload, headers=HEADERS)
+   # Middleware maps StorageError to 500
    assert response.status_code == 500
-   assert "Failed to start session due to storage issue." in response.json()["detail"] # Specific message
+   # Middleware now returns the raw exception string in the detail
+   assert response.json() == {"detail": "Storage error: Storage unavailable"}
    mock_start_session.assert_called_once()
 
 
@@ -442,8 +446,10 @@ def test_trigger_workflow_enqueue_failure(
    payload = {"workflowDefinitionId": workflow_id}
    response = client.post(f"/v1/opscore/agent/{agent_id}/workflow", json=payload, headers=HEADERS)
 
-   assert response.status_code == 400 # InvalidStateError maps to 400 in this block
-   assert f"Failed to enqueue first task due to invalid data: {error_message}" in response.json()["detail"]
+   # Middleware maps InvalidStateError to 400
+   assert response.status_code == 400
+   # Middleware now returns the raw exception string in the detail
+   assert response.json() == {"detail": error_message} # error_message = "Queue is full"
    mock_enqueue_task.assert_called_once()
    mock_update_session.assert_called_once() # Verify session status was updated to failed
    call_args, _ = mock_update_session.call_args

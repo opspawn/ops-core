@@ -243,12 +243,11 @@ def test_register_agent_storage_failure(mock_save, valid_agent_reg_details):
     mock_save.assert_called_once()
 
 # Removed mock - testing actual validation failure
-def test_set_state_model_creation_failure(valid_agent_info):
+def test_set_state_model_creation_failure(valid_agent_reg_details): # Use correct fixture
     """Test set_state raises InvalidStateError on AgentState model creation failure."""
-    # Lines 105-107 (Note: Requires valid_agent_info fixture from conftest)
-    # Ensure agent is registered first for the initial check to pass
-    storage.save_agent_registration(valid_agent_info)
-    agent_id = valid_agent_info.agentId
+    # Ensure agent is registered first
+    agent_info = lifecycle.register_agent(valid_agent_reg_details)
+    agent_id = agent_info.agentId
 
     # Pass an integer for state, which should cause Pydantic validation error
     with pytest.raises(exceptions.InvalidStateError, match="Invalid state data provided"):
@@ -256,12 +255,11 @@ def test_set_state_model_creation_failure(valid_agent_info):
 
 
 @patch('opscore.storage.save_agent_state', side_effect=IOError("DB connection lost"))
-def test_set_state_storage_failure(mock_save, valid_agent_info):
+def test_set_state_storage_failure(mock_save, valid_agent_reg_details): # Use correct fixture
     """Test set_state raises StorageError on storage failure."""
-    # Lines 113-116 (Note: Requires valid_agent_info fixture from conftest)
-    # Ensure agent is registered first for the initial check to pass
-    storage.save_agent_registration(valid_agent_info)
-    agent_id = valid_agent_info.agentId
+    # Ensure agent is registered first
+    agent_info = lifecycle.register_agent(valid_agent_reg_details)
+    agent_id = agent_info.agentId
 
     with pytest.raises(exceptions.StorageError, match="Failed to save state"):
         lifecycle.set_state(agent_id, "active")
@@ -269,33 +267,33 @@ def test_set_state_storage_failure(mock_save, valid_agent_info):
 
 # Changed patch target
 @patch('opscore.lifecycle.WorkflowSession', side_effect=ValueError("Session init failed"))
-def test_start_session_model_creation_failure(mock_model, valid_agent_info):
+def test_start_session_model_creation_failure(mock_model, valid_agent_reg_details): # Use correct fixture
     """Test start_session raises OpsCoreError on WorkflowSession model creation failure."""
-    # Lines 172-174 (Note: Requires valid_agent_info fixture from conftest)
-    storage.save_agent_registration(valid_agent_info)
-    agent_id = valid_agent_info.agentId
+    # Ensure agent is registered first
+    agent_info = lifecycle.register_agent(valid_agent_reg_details)
+    agent_id = agent_info.agentId
     with pytest.raises(exceptions.OpsCoreError, match="Failed to initialize session object"):
         lifecycle.start_session(agent_id, "wf_model_fail")
     # mock_model.assert_called_once() # Mocking the class directly might not track calls this way
 
 
 @patch('opscore.storage.create_session', side_effect=ValueError("Duplicate session ID"))
-def test_start_session_storage_value_error(mock_create, valid_agent_info):
+def test_start_session_storage_value_error(mock_create, valid_agent_reg_details): # Use correct fixture
     """Test start_session raises StorageError on storage value error (duplicate ID)."""
-    # Lines 180-182 (Note: Requires valid_agent_info fixture from conftest)
-    storage.save_agent_registration(valid_agent_info)
-    agent_id = valid_agent_info.agentId
+    # Ensure agent is registered first
+    agent_info = lifecycle.register_agent(valid_agent_reg_details)
+    agent_id = agent_info.agentId
     # Match the specific error message from storage.py
     with pytest.raises(exceptions.StorageError, match="Session ID .* already exists."):
         lifecycle.start_session(agent_id, "wf_storage_value_fail")
     mock_create.assert_called_once()
 
 @patch('opscore.storage.create_session', side_effect=IOError("Cannot write session"))
-def test_start_session_storage_io_error(mock_create, valid_agent_info):
+def test_start_session_storage_io_error(mock_create, valid_agent_reg_details): # Use correct fixture
     """Test start_session raises StorageError on storage IO error."""
-    # Lines 183-185 (Note: Requires valid_agent_info fixture from conftest)
-    storage.save_agent_registration(valid_agent_info)
-    agent_id = valid_agent_info.agentId
+    # Ensure agent is registered first
+    agent_info = lifecycle.register_agent(valid_agent_reg_details)
+    agent_id = agent_info.agentId
     with pytest.raises(exceptions.StorageError, match="Failed to save session"):
         lifecycle.start_session(agent_id, "wf_storage_io_fail")
     mock_create.assert_called_once()

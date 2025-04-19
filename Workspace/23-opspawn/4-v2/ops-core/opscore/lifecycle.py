@@ -247,13 +247,13 @@ def update_session(session_id: str, update_payload: SessionUpdate) -> WorkflowSe
         updated_session = storage.update_session_data(session_id, update_dict)
         logger.info(f"Session {session_id} updated successfully.")
         return updated_session
-    except KeyError: # Raised by storage.update_session_data if session_id not found
+    except exceptions.SessionNotFoundError as e: # Catch specific not found error from storage
         logger.error(f"Update failed: Session {session_id} not found.")
-        raise exceptions.SessionNotFoundError(session_id)
-    except ValueError as e: # Raised by storage.update_session_data for invalid data
+        raise e # Re-raise the specific SessionNotFoundError
+    except exceptions.InvalidStateError as e: # Catch specific invalid data error from storage
         logger.error(f"Update failed for session {session_id} due to invalid data: {e}", exc_info=True)
-        raise exceptions.InvalidStateError(f"Invalid update data for session {session_id}: {e}") from e
-    except Exception as e:
+        raise e # Re-raise the specific InvalidStateError
+    except Exception as e: # Catch other potential storage or unexpected errors
         logger.error(f"Failed to update session {session_id} in storage: {e}", exc_info=True)
         raise exceptions.StorageError(f"Failed to update session {session_id}", original_exception=e) from e
 

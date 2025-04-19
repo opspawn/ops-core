@@ -45,9 +45,10 @@ def save_agent_registration(agent_info: AgentInfo):
             # Store as dict for simplicity in this in-memory version
             _agent_registrations[agent_id] = agent_info.model_dump(mode='json')
             logger.info(f"Registration saved for agent {agent_id}")
-        except Exception as e:
-            logger.error(f"Storage error during agent registration save for {agent_id}: {e}", exc_info=True)
-            raise exceptions.StorageError(f"Failed to save registration for agent {agent_id}", original_exception=e) from e
+        except (TypeError, ValueError) as e: # Catch more specific errors if data is malformed post-validation
+            logger.error(f"Data error during agent registration save for {agent_id}: {e}", exc_info=True)
+            # Re-raise as StorageError or a more specific data error if needed
+            raise exceptions.StorageError(f"Failed to save registration for agent {agent_id} due to data issue", original_exception=e) from e
 
 def read_agent_registration(agent_id: str) -> Optional[AgentInfo]:
     """Retrieves agent registration details."""
@@ -108,9 +109,9 @@ def save_agent_state(agent_state: AgentState):
             #     logger.debug(f"Trimming state history for agent {agent_id}")
             #     _agent_states[agent_id] = _agent_states[agent_id][-MAX_HISTORY:]
             logger.info(f"State saved for agent {agent_id}")
-        except Exception as e:
-            logger.error(f"Storage error during agent state save for {agent_id}: {e}", exc_info=True)
-            raise exceptions.StorageError(f"Failed to save state for agent {agent_id}", original_exception=e) from e
+        except (TypeError, ValueError) as e: # Catch more specific errors
+            logger.error(f"Data error during agent state save for {agent_id}: {e}", exc_info=True)
+            raise exceptions.StorageError(f"Failed to save state for agent {agent_id} due to data issue", original_exception=e) from e
 
 def read_latest_agent_state(agent_id: str) -> Optional[AgentState]:
     """Retrieves the most recent state for an agent."""
@@ -162,9 +163,9 @@ def create_session(session: WorkflowSession) -> None:
         try:
             _sessions[session_id] = session
             logger.info(f"Session {session_id} created successfully.")
-        except Exception as e:
-            logger.error(f"Storage error during session creation for {session_id}: {e}", exc_info=True)
-            raise exceptions.StorageError(f"Failed to create session {session_id}", original_exception=e) from e
+        except (TypeError, ValueError) as e: # Catch more specific errors
+            logger.error(f"Data error during session creation for {session_id}: {e}", exc_info=True)
+            raise exceptions.StorageError(f"Failed to create session {session_id} due to data issue", original_exception=e) from e
 
 def read_session(session_id: str) -> Optional[WorkflowSession]:
     """Retrieves workflow session data by ID."""
@@ -221,10 +222,10 @@ def update_session_data(session_id: str, update_data: Dict[str, Any]) -> Workflo
             return updated_session
         except ValueError as e: # Catch Pydantic validation errors specifically
             logger.error(f"Failed to update session {session_id} due to invalid data: {e}", exc_info=True)
+            # Re-raise the specific InvalidStateError caught from Pydantic validation
             raise exceptions.InvalidStateError(f"Invalid update data for session {session_id}: {e}") from e
-        except Exception as e: # Catch other potential storage errors
-            logger.error(f"Storage error during session update for {session_id}: {e}", exc_info=True)
-            raise exceptions.StorageError(f"Failed to update session {session_id}", original_exception=e) from e
+        # Removed broad except Exception here as Pydantic validation errors are caught above
+        # Lock errors should propagate out of the 'with' block
 
 def delete_session(session_id: str) -> bool:
     """Deletes a workflow session by ID."""
@@ -249,9 +250,9 @@ def save_workflow_definition(definition: WorkflowDefinition):
             # Store as dict
             _workflow_definitions[workflow_id] = definition.model_dump(mode='json')
             logger.info(f"Workflow definition {workflow_id} saved.")
-        except Exception as e:
-            logger.error(f"Storage error saving workflow definition {workflow_id}: {e}", exc_info=True)
-            raise exceptions.StorageError(f"Failed to save workflow definition {workflow_id}", original_exception=e) from e
+        except (TypeError, ValueError) as e: # Catch more specific errors
+            logger.error(f"Data error saving workflow definition {workflow_id}: {e}", exc_info=True)
+            raise exceptions.StorageError(f"Failed to save workflow definition {workflow_id} due to data issue", original_exception=e) from e
 
 def read_workflow_definition(workflow_id: str) -> Optional[WorkflowDefinition]:
     """Retrieves a workflow definition."""

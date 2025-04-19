@@ -63,3 +63,28 @@ class AgentAlreadyExistsError(RegistrationError):
     def __init__(self, agent_id: str):
         self.agent_id = agent_id
         super().__init__(f"Agent {agent_id} already exists.")
+from starlette import status # Import status codes
+
+def get_status_code_for_exception(exc: OpsCoreError) -> int:
+    """
+    Maps OpsCoreError subclasses to appropriate HTTP status codes.
+
+    Args:
+        exc: An instance of OpsCoreError or its subclass.
+
+    Returns:
+        The corresponding HTTP status code.
+    """
+    if isinstance(exc, (AgentNotFoundError, SessionNotFoundError, WorkflowDefinitionNotFoundError)):
+        return status.HTTP_404_NOT_FOUND
+    elif isinstance(exc, AgentAlreadyExistsError):
+        return status.HTTP_409_CONFLICT
+    elif isinstance(exc, (InvalidStateError, RegistrationError, WorkflowDefinitionError)):
+        # Treat general registration/definition errors and invalid states as bad requests
+        return status.HTTP_400_BAD_REQUEST
+    elif isinstance(exc, (StorageError, TaskDispatchError, ConfigurationError)):
+        # Treat storage, dispatch, and config errors as internal server errors
+        return status.HTTP_500_INTERNAL_SERVER_ERROR
+    else:
+        # Default for base OpsCoreError or any unmapped subclass
+        return status.HTTP_500_INTERNAL_SERVER_ERROR

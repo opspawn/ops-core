@@ -1,44 +1,31 @@
-# Active Context: Ops-Core Python Module (Updated - 2025-04-19 @ 08:39)
+# Active Context: Ops-Core Python Module (Updated - 2025-04-19 @ 16:38)
 
 ## 1. Current Work Focus
-- **Completed:** Phase 1 (Initialization & Research), Phase 2 foundational components (Lifecycle, Workflow, Storage, Logging, Models, API state endpoint), Task 2.4 (Session Tracking), Task 2.7 (Error Handling Placeholders), AgentKit Client Placeholder, Dispatcher Connection, Task 4.1 (Initial Unit Tests), API Testing (Task 4.1/4.2), Agent State Check (Task 2.6 refinement), Task 2.14 (Custom Exceptions).
-- **Focus:** Implementing core features, establishing initial test coverage, and improving error handling.
+- **Completed:** Phase 1, Phase 2, Task 3.1 (SDK), Task 3.2 (CLI), Task 3.4 (AgentKit Integration).
+- **Focus:** Implementing Task 3.3 (Middleware), resolving test failures.
 
 ## 2. Recent Changes & Decisions (This Session - 2025-04-19)
-- **Task 3.1 (Completed): Integrate Ops-Core API with Python SDK:**
-   - Created new `opscore_sdk/` directory.
-   - Implemented synchronous (`OpsCoreClientSync`) and asynchronous (`OpsCoreClientAsync`) clients in `opscore_sdk/client.py` using `httpx`.
-   - Defined SDK-specific models (`StateUpdatePayload`, `WorkflowTriggerPayload`, etc.) in `opscore_sdk/models.py` using `TypedDict`.
-   - Defined SDK-specific exceptions (`OpsCoreSDKError`, `OpsCoreApiError`, etc.) in `opscore_sdk/exceptions.py`.
-   - Added basic usage documentation in `opscore_sdk/README.md`.
-   - Added `pytest-httpx` dependency to `requirements.txt`.
-   - Created unit tests for both clients in `tests/test_opscore_sdk/test_client.py`, mocking API calls with `pytest-httpx`.
-   - Resolved issues with `pytest-asyncio` fixture handling for async client tests.
-   - Created `sdk_development_plan.md`.
-- **Task 3.4 (Completed - Previous Session): AgentKit Integration - Webhook Approach:**
-   - (Details from previous session remain relevant)
-- **Task 3.2 (Completed): Create CLI Application:**
-   - Created new `opscore_cli/` directory.
-   - Implemented CLI using `click` library.
-   - Added commands: `agent get-state`, `agent update-state`, `workflow trigger`.
-   - Added dependency `click` to `requirements.txt`.
-   - Created `opscore_cli/README.md`.
-   - Added unit tests in `tests/test_opscore_cli/` using `pytest` and `CliRunner`.
-   - Fixed test failures related to `ImportError` and `CliRunner` usage for `stderr`.
-
+- **Task 3.3 (Partially Complete): Implement Middleware:**
+    - Created `opscore/middleware.py` with `RequestLoggingMiddleware` and `ErrorHandlerMiddleware`.
+    - Integrated middleware into `opscore/api.py`, removing redundant exception handling from route handlers.
+    - Added `get_status_code_for_exception` helper to `opscore/exceptions.py`.
+    - Created `tests/test_middleware.py` with initial tests.
+    - Added `pytest-httpx` and `pytest-lazy-fixture` to `requirements.txt` (later removed `pytest-lazy-fixture`).
+    - Refactored tests in `tests/test_api.py`, `tests/test_storage.py`, `tests/test_lifecycle.py`, `tests/test_workflow.py`, `tests/conftest.py` to fix various errors (Pydantic validation, assertion errors, patching issues, syntax errors, fixture issues).
+    - Uninstalled `pytest-lazy-fixture` due to persistent collection errors.
+    - **Status:** Code implemented, but numerous test failures remain across multiple modules (`test_api`, `test_lifecycle`, `test_middleware`, `test_storage`).
 
 ## 3. Next Steps (Next Session)
-- **Implement Middleware (Task 3.3):** Implement middleware for structured logging and standardized error handling across API endpoints. (Next Action)
+- **Resolve Test Failures (Task 3.3):** Debug and fix the remaining 29 test failures and 12 errors identified in the last `pytest` run. This is the immediate priority to complete Task 3.3.
 - **Refine Workflow Definition:** Define and validate the schema for `WorkflowDefinition.tasks` more strictly in `models.py`. (Deferred)
 - **Refine Re-queue Logic:** Implement proper delay/backoff for re-queuing tasks when agents are busy (currently immediate re-queue). (Deferred)
 
 ## 4. Active Decisions & Considerations
-- **Test Coverage:** `lifecycle.py` coverage is 100%. `api.py` coverage is 89%. Overall coverage is significantly improved but can be further enhanced, especially for `agentkit_client.py`, `logging_config.py`, `workflow.py`, and `storage.py`. Need to run coverage report again after recent changes.
-- **AgentKit Endpoint Dependency:** Switched to webhook approach. Requirement for AgentKit to send webhooks documented in `AGENTKIT_REQUIREMENTS.md`. Mock AgentKit simulates this.
-- **Integration Tests:** AgentKit integration tests are now passing after debugging.
-- **Persistent Queue:** The task queue (`_task_queue` in `workflow.py`) remains in-memory.
-- **Error Handling:** Custom exception refactoring is complete. All core modules and tests updated to use custom exceptions.
-- **Agent State Check:** Implemented in `process_next_task`. Uses `asyncio.to_thread` for sync `get_state` call. Re-queues if not idle, fails if state unknown.
+- **Test Failures:** Significant number of test failures introduced or uncovered during middleware implementation and subsequent refactoring need urgent attention. Errors include `TypeError` in lifecycle tests, `AttributeError` in middleware tests, and `Failed: DID NOT RAISE` errors in storage tests.
+- **Test Coverage:** Test coverage needs re-evaluation after fixing failures.
+- **AgentKit Endpoint Dependency:** Webhook approach remains.
+- **Integration Tests:** AgentKit integration tests (`test_agentkit_integration.py`) were skipped in the last run but previously showed `ConnectError`/`ConnectTimeout`, likely due to the Docker environment not running/accessible. Needs verification after unit tests pass.
+- **Error Handling:** Middleware now centralizes error handling, but underlying issues exposed in tests need fixing.
 
 ## 5. Important Patterns & Preferences
 - Continue following Python best practices (PEP8, type hints).

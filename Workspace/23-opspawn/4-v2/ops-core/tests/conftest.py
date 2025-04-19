@@ -44,6 +44,7 @@ def clear_storage_before_each_test():
 def valid_agent_reg_details_data() -> dict:
     """Provides valid raw data for AgentRegistrationDetails."""
     return {
+        "agentId": "agent_test_123", # Added missing agentId
         "agentName": "TestAgent",
         "version": "1.0.1",
         "capabilities": ["test_capability", "another_one"],
@@ -61,7 +62,7 @@ def valid_agent_info(valid_agent_reg_details) -> models.AgentInfo:
     """Provides a valid AgentInfo model instance."""
     return models.AgentInfo(
         **valid_agent_reg_details.model_dump(),
-        agentId="agent_test_123",
+        # agentId="agent_test_123", # Removed redundant agentId kwarg
         registrationTime=datetime(2024, 1, 1, 12, 0, 0) # Fixed time for predictability
     )
 

@@ -66,8 +66,9 @@ def test_load_workflow_template_json_success():
     assert len(definition['tasks']) == 1
 
 def test_load_workflow_template_invalid_format():
-    """Test loading with an unsupported format raises ValueError."""
-    with pytest.raises(ValueError, match="Unsupported template format: xml"):
+    """Test loading with an unsupported format raises WorkflowDefinitionError."""
+    # The function now wraps ValueError in WorkflowDefinitionError
+    with pytest.raises(exceptions.WorkflowDefinitionError, match="Failed to parse workflow template: Unsupported template format: xml"):
         workflow.load_workflow_template("<xml></xml>", format='xml')
 
 def test_load_workflow_template_invalid_yaml_syntax():
@@ -107,29 +108,29 @@ def test_create_workflow_generate_id():
     assert retrieved_def.id == workflow_id
     assert retrieved_def.name == "Generate ID Test"
 
-+def test_create_workflow_invalid_structure():
-+    """Test creating a workflow with invalid definition structure raises WorkflowDefinitionError."""
-+    invalid_definition = {
-+        "id": "wf_invalid_struct",
-+        "name": "Invalid",
-+        "tasks": "not a list" # Invalid type for tasks
-+    }
-+    with pytest.raises(exceptions.WorkflowDefinitionError, match="Invalid workflow definition structure"):
-+        workflow.create_workflow(invalid_definition)
-+
-+@pytest.mark.parametrize("storage_exception", [
-+    IOError("Disk full"),
-+    exceptions.StorageError("Simulated storage issue")
-+])
-+def test_create_workflow_storage_failure(mocker, valid_workflow_def_dict, storage_exception):
-+    """Test creating a workflow raises StorageError on storage failure."""
-+    mock_save = mocker.patch('opscore.storage.save_workflow_definition', side_effect=storage_exception)
-+
-+    with pytest.raises(exceptions.StorageError, match="Failed to save workflow definition"):
-+        workflow.create_workflow(valid_workflow_def_dict)
-+
-+    mock_save.assert_called_once()
-+
+def test_create_workflow_invalid_structure():
+    """Test creating a workflow with invalid definition structure raises WorkflowDefinitionError."""
+    invalid_definition = {
+        "id": "wf_invalid_struct",
+        "name": "Invalid",
+        "tasks": "not a list" # Invalid type for tasks
+    }
+    with pytest.raises(exceptions.WorkflowDefinitionError, match="Invalid workflow definition structure"):
+        workflow.create_workflow(invalid_definition)
+
+@pytest.mark.parametrize("storage_exception", [
+    IOError("Disk full"),
+    exceptions.StorageError("Simulated storage issue")
+])
+def test_create_workflow_storage_failure(mocker, valid_workflow_def_dict, storage_exception):
+    """Test creating a workflow raises StorageError on storage failure."""
+    mock_save = mocker.patch('opscore.storage.save_workflow_definition', side_effect=storage_exception)
+
+    with pytest.raises(exceptions.StorageError, match="Failed to save workflow definition"):
+        workflow.create_workflow(valid_workflow_def_dict)
+
+    mock_save.assert_called_once()
+
 def test_get_workflow_definition_success(valid_workflow_def_model):
     """Test retrieving an existing workflow definition."""
     storage.save_workflow_definition(valid_workflow_def_model) # Save first
