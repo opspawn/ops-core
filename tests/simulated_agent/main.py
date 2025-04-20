@@ -16,13 +16,16 @@ logger = logging.getLogger("SimulatedAgent")
 AGENTKIT_API_URL = os.getenv("AGENTKIT_API_URL", "http://localhost:8001/v1")
 OPSCORE_API_URL = os.getenv("OPSCORE_API_URL", "http://localhost:8000/v1") # Ops-Core base URL
 OPSCORE_API_KEY = os.getenv("OPSCORE_API_KEY", "test-api-key") # Key to auth WITH Ops-Core
-AGENT_ID = os.getenv("AGENT_ID", f"sim-agent-{uuid.uuid4()}")
+# AGENT_ID = os.getenv("AGENT_ID", f"sim-agent-{uuid.uuid4()}") # Initial configured ID - will be replaced by AgentKit ID
 AGENT_NAME = os.getenv("AGENT_NAME", "SimulatedAgent")
 AGENT_VERSION = os.getenv("AGENT_VERSION", "0.1.0")
 # The endpoint AgentKit should call on this agent
 AGENT_CONTACT_ENDPOINT = os.getenv("AGENT_CONTACT_ENDPOINT", "http://simulated_agent:8080/task")
 # The port this agent service listens on
 AGENT_PORT = int(os.getenv("AGENT_PORT", "8080"))
+
+# Global variable to store the actual agent ID assigned by AgentKit
+ACTUAL_AGENT_ID = None
 
 # --- AgentKit SDK (Simplified Inline Version) ---
 # In a real scenario, this would import the actual agentkit.sdk
@@ -151,26 +154,22 @@ async def lifespan(app: FastAPI):
     registered = False
     attempts = 0
     max_attempts = 5
+    global ACTUAL_AGENT_ID # Declare intent to modify the global variable
     while not registered and attempts < max_attempts:
         attempts += 1
         try:
-            # Use the globally defined AGENT_ID for registration
-            actual_agent_id = await clients["agentkit"].register_agent(
+            # Use a temporary ID hint for registration, but capture the actual ID returned
+            temp_id_hint = f"sim-agent-{uuid.uuid4()}"
+            ACTUAL_AGENT_ID = await clients["agentkit"].register_agent(
                 agent_name=AGENT_NAME,
                 capabilities=["simulation"],
                 version=AGENT_VERSION,
                 contact_endpoint=AGENT_CONTACT_ENDPOINT,
-                metadata={"id_hint": AGENT_ID} # Pass configured ID as hint
+                metadata={"id_hint": temp_id_hint} # Pass a hint
             )
-            # IMPORTANT: Use the ID returned by AgentKit if it differs from the hint
-            # For simulation consistency, we'll log a warning if they differ but proceed
-            if actual_agent_id != AGENT_ID:
-                 logger.warning(f"AgentKit returned ID '{actual_agent_id}' which differs from configured ID '{AGENT_ID}'. Using returned ID.")
-                 # Update global AGENT_ID if needed, though this might complicate testing if ID is assumed fixed
-                 # global AGENT_ID
-                 # AGENT_ID = actual_agent_id # Decide if this mutation is desired
+            # IMPORTANT: Use the ID returned by AgentKit
             registered = True
-            logger.info(f"Simulated Agent '{AGENT_NAME}' registered with ID '{actual_agent_id}'")
+            logger.info(f"Simulated Agent '{AGENT_NAME}' registered successfully with ID '{ACTUAL_AGENT_ID}'")
         except AgentKitError as e:
             logger.error(f"Attempt {attempts}/{max_attempts}: Failed to register with AgentKit: {e}. Retrying in 5 seconds...")
             await asyncio.sleep(5)
@@ -209,27 +208,29 @@ async def simulate_task_processing(task_id: str | None):
     try:
         logger.info(f"Task received (OpsCore Task ID: {task_id}). Simulating work...")
         # 1. Report 'active' state
-        await opscore_client.report_state(AGENT_ID, "active", details=task_details)
+        # Use the ACTUAL_AGENT_ID for reporting state
+        await opscore_client.report_state(ACTUAL_AGENT_ID, "active", details=task_details)
 
         # 2. Simulate work
         await asyncio.sleep(2) # Simulate 2 seconds of work
 
         # 3. Report 'idle' state (or 'completed')
         logger.info(f"Task simulation complete (OpsCore Task ID: {task_id}). Reporting idle.")
-        await opscore_client.report_state(AGENT_ID, "idle", details=task_details)
+        # Use the ACTUAL_AGENT_ID for reporting state
+        await opscore_client.report_state(ACTUAL_AGENT_ID, "idle", details=task_details)
 
     except OpsCoreError as e:
         logger.error(f"Failed to report state to OpsCore for task {task_id}: {e}")
         # Optionally report an 'error' state back to OpsCore if state reporting fails critically
         try:
-            await opscore_client.report_state(AGENT_ID, "error", details={"error": str(e), **task_details})
+            await opscore_client.report_state(ACTUAL_AGENT_ID, "error", details={"error": str(e), **task_details})
         except Exception as report_err:
             logger.error(f"Failed even reporting error state back to OpsCore: {report_err}")
     except Exception as e:
         logger.error(f"Unexpected error during task simulation for task {task_id}: {e}")
         # Report error state if possible
         try:
-            await opscore_client.report_state(AGENT_ID, "error", details={"error": f"Unexpected simulation error: {str(e)}", **task_details})
+            await opscore_client.report_state(ACTUAL_AGENT_ID, "error", details={"error": f"Unexpected simulation error: {str(e)}", **task_details})
         except Exception as report_err:
             logger.error(f"Failed reporting unexpected error state back to OpsCore: {report_err}")
 
@@ -257,13 +258,18 @@ async def receive_task(request: Request, background_tasks: BackgroundTasks):
 
 @app.get("/health")
 async def health_check():
-    # Basic health check
-    return {"status": "healthy", "agent_id": AGENT_ID}
+    # Basic health check, return the actual agent ID assigned by AgentKit
+    if ACTUAL_AGENT_ID is None:
+        # Agent hasn't registered yet, return a temporary status or error
+        return {"status": "registering", "agent_id": None}
+    return {"status": "healthy", "agent_id": ACTUAL_AGENT_ID}
 
 # --- Main Execution ---
 if __name__ == "__main__":
     import uvicorn
-    logger.info(f"Starting Simulated Agent '{AGENT_NAME}' (ID: {AGENT_ID}) on port {AGENT_PORT}")
+    # Log the configured ID hint, but note it might change
+    configured_id_hint = os.getenv("AGENT_ID", f"sim-agent-{uuid.uuid4()}")
+    logger.info(f"Starting Simulated Agent '{AGENT_NAME}' (Configured ID Hint: {configured_id_hint}) on port {AGENT_PORT}")
     logger.info(f"AgentKit API URL: {AGENTKIT_API_URL}")
     logger.info(f"OpsCore API URL: {OPSCORE_API_URL}")
     logger.info(f"Contact Endpoint: {AGENT_CONTACT_ENDPOINT}")

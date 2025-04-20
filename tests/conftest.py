@@ -24,11 +24,11 @@ except ImportError as e:
     # Re-raise the exception to make it clear there's an issue
     raise
 
-@pytest.fixture(autouse=True)
+@pytest.fixture() # Removed autouse=True
 def clear_storage_before_each_test():
     """
-    Fixture to automatically clear the in-memory storage and task queue
-    before each test runs.
+    Fixture to clear the in-memory storage and task queue before tests.
+    Should be explicitly used with @pytest.mark.usefixtures where needed.
     """
     print("\nClearing storage and queue before test...") # Added print for visibility
     storage.clear_all_data()

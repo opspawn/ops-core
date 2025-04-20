@@ -1,4 +1,5 @@
 import pytest
+import pytest_asyncio # Import pytest_asyncio
 import httpx
 import asyncio
 import os
@@ -46,7 +47,8 @@ async def poll_for_agent_state(base_url: str, agent_id: str, expected_state: str
                 response = await client.get(f"/v1/opscore/agent/{agent_id}/state", headers=headers)
                 if response.status_code == 200:
                     data = response.json()
-                    last_state = data.get("data", {}).get("state")
+                    # Extract state directly from the top-level response data
+                    last_state = data.get("state")
                     # Check for expected state *only* if response was successful
                     if last_state == expected_state:
                         print(f"Agent {agent_id} reached expected state '{expected_state}'.")
@@ -111,18 +113,19 @@ async def poll_for_agent_state(base_url: str, agent_id: str, expected_state: str
 #     print(f"\nStopping services from {compose_file}...")
 #     stop_command = ["docker-compose", "-f", compose_file, "down", "--remove-orphans"]
 #     # subprocess.run(stop_command, check=True, cwd=project_dir) # Problematic line
-
-@pytest.fixture(scope="module")
+#
+@pytest_asyncio.fixture(scope="function") # Change scope to function
 async def opscore_client() -> AsyncGenerator[httpx.AsyncClient, None]:
     """HTTP client for interacting with the Ops-Core service."""
     async with httpx.AsyncClient(base_url=OPSCORE_BASE_URL, timeout=30.0) as client:
         yield client
 
-@pytest.fixture(scope="module")
-async def agentkit_client() -> AsyncGenerator[httpx.AsyncClient, None]:
+@pytest_asyncio.fixture(scope="function") # Change scope to function
+async def agentkit_client() -> httpx.AsyncClient:
     """HTTP client for interacting with the AgentKit service."""
-    async with httpx.AsyncClient(base_url=AGENTKIT_BASE_URL, timeout=30.0) as client:
-        yield client
+    client = httpx.AsyncClient(base_url=AGENTKIT_BASE_URL, timeout=30.0)
+    yield client
+    await client.aclose() # Close the client after the function test is done
 
 # --- Test Cases ---
 
@@ -138,33 +141,40 @@ async def test_end_to_end_workflow(opscore_client: httpx.AsyncClient, agentkit_c
     6. Simulated Agent reports 'active' state to Ops-Core.
     7. Simulated Agent reports 'idle' state to Ops-Core.
     """
-    # 1. Wait for services to be healthy (already handled by docker-compose depends_on and healthchecks if configured)
-    # We can add explicit waits here if needed, but let's rely on polling for agent state first.
+    # 1. Wait for services to be healthy
+    print("Waiting for services to be healthy...")
+    try:
+        # Wait for Ops-Core
+        await wait_for_service(OPSCORE_BASE_URL, "Ops-Core")
+        # Wait for AgentKit
+        await wait_for_service(AGENTKIT_BASE_URL, "AgentKit")
+        # Wait for Simulated Agent
+        await wait_for_service(SIMULATED_AGENT_BASE_URL, "Simulated Agent")
+        print("All services are healthy.")
+    except TimeoutError as e:
+        pytest.fail(f"Service health check failed: {e}")
 
-    # 2. Discover the dynamically generated agent ID from AgentKit
-    print("Discovering agent ID from AgentKit...")
+
+    # 2. Discover the dynamically generated agent ID from the Simulated Agent's health endpoint
+    print("Discovering agent ID from Simulated Agent...")
     discovered_agent_id = None
     try:
-        # Poll AgentKit's /v1/agents endpoint until the simulated agent appears
-        start_time = time.time()
-        while time.time() - start_time < 60: # Timeout after 60 seconds
-            response = await agentkit_client.get("/v1/agents") # Assuming AgentKit has a /v1/agents endpoint
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{SIMULATED_AGENT_BASE_URL}/health")
             response.raise_for_status()
-            agents = response.json().get("data", []) # Assuming response has a 'data' key with a list of agents
-            for agent in agents:
-                # Find the simulated agent by name or other identifiable metadata
-                if agent.get("agentName") == "TestSimulatedAgent": # Match by name
-                    discovered_agent_id = agent.get("agentId")
-                    print(f"Discovered agent ID from AgentKit: {discovered_agent_id}")
-                    break # Found the agent, exit loop
-            if discovered_agent_id:
-                break # Exit while loop if agent ID was found
-            await asyncio.sleep(2) # Wait before polling again
+            health_data = response.json()
+            discovered_agent_id = health_data.get("agent_id")
+            if not discovered_agent_id:
+                 pytest.fail("Simulated Agent health endpoint did not return 'agent_id'.")
+            print(f"Discovered agent ID from Simulated Agent: {discovered_agent_id}")
     except Exception as e:
-        pytest.fail(f"Failed to discover agent ID from AgentKit: {e}")
+        pytest.fail(f"Failed to discover agent ID from Simulated Agent health endpoint: {e}")
 
-    if not discovered_agent_id:
-        pytest.fail("Simulated agent did not appear in AgentKit's registered agents list within timeout.")
+
+    # Add a small delay to allow Ops-Core to process the registration webhook
+    print("Waiting 5 seconds for Ops-Core to process registration webhook...")
+    await asyncio.sleep(5)
+    print("Continuing test...")
 
     # 3. Verify Agent Registration in Ops-Core (via webhook)
     # Step 3a: Poll for the initial "UNKNOWN" state set by webhook processing
@@ -199,6 +209,7 @@ async def test_end_to_end_workflow(opscore_client: httpx.AsyncClient, agentkit_c
             ]
         }
     }
+    # Use the opscore_client fixture here
     trigger_response = await opscore_client.post(f"/v1/opscore/agent/{discovered_agent_id}/workflow", json=workflow_payload)
     assert trigger_response.status_code == 202 # Expect 202 Accepted for async trigger
     print(f"Workflow triggered successfully for agent {discovered_agent_id}.")
