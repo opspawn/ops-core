@@ -59,7 +59,7 @@ This TASK.md document provides a detailed, step-by-step checklist for developing
  - *Subtask:* Develop helper functions to simplify API calls (state update, workflow trigger, get state).
 - [X] **Task 3.2:** Create a simple CLI application to interact with Ops‑Core endpoints. (Completed: Created `opscore_cli/` with commands and unit tests - 2025-04-19)
   - *Commands:* Include options for agent registration, state update, and workflow initiation.
-- [ ] **Task 3.3:** Implement middleware for structured logging and standardized error handling across endpoints. (Partially Complete: Code implemented, most test failures resolved, 8 remain - 2025-04-19)
+- [X] **Task 3.3:** Implement middleware for structured logging and standardized error handling across endpoints. (Completed: Middleware implemented, all 31 related test failures resolved - 2025-04-19)
 # - [ ] **Task 3.4:** Ensure all endpoints interoperate seamlessly with AgentKit’s integration interfaces. # Duplicate entry removed
 
 ---
@@ -95,6 +95,7 @@ This TASK.md document provides a detailed, step-by-step checklist for developing
 - [ ] **Task B4:** Enhance security protocols with OAuth/SSO and role‑based access control.
 - [ ] **Task B5:** Optimize workflow orchestration with machine learning–driven performance adjustments.
 - [ ] **Task B6:** Expand API endpoints to support additional third-party tool integrations.
+- [ ] **Task B7:** Address `httpx` DeprecationWarnings in `tests/test_middleware.py` related to `TestClient` instantiation. (Identified 2025-04-19)
 
 ---
 

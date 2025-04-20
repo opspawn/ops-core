@@ -226,12 +226,26 @@ async def trigger_workflow(
 
         elif trigger_request.workflowDefinition:
             logger.debug("Using inline workflow definition from request.")
-            workflow_def = trigger_request.workflowDefinition
-            workflow_id = workflow_def.id
-            # Optional: Save the inline definition if it doesn't exist?
+            workflow_def_data = trigger_request.workflowDefinition # Get the raw data (likely dict)
+
+            # Validate and convert to model instance
             try:
-                storage.read_workflow_definition(workflow_id)
-            except exceptions.WorkflowDefinitionNotFoundError:
+                if isinstance(workflow_def_data, models.WorkflowDefinition):
+                     # Already a model instance (less likely path but handle defensively)
+                     workflow_def = workflow_def_data
+                elif isinstance(workflow_def_data, dict):
+                     workflow_def = models.WorkflowDefinition(**workflow_def_data)
+                else:
+                     # Should be caught by FastAPI/Pydantic earlier, but raise if not
+                     raise ValueError("workflowDefinition must be a valid dictionary or WorkflowDefinition object.")
+                workflow_id = workflow_def.id # Now safe to access attribute
+            except Exception as validation_error: # Catch Pydantic validation errors etc.
+                logger.error(f"Invalid inline workflow definition provided: {validation_error}", exc_info=True)
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid inline workflowDefinition: {validation_error}")
+
+            # Optional: Save the inline definition if it doesn't exist?
+            existing_def = storage.read_workflow_definition(workflow_id)
+            if not existing_def:
                  logger.info(f"Saving new inline workflow definition: {workflow_id}")
                  storage.save_workflow_definition(workflow_def) # Save the model
 

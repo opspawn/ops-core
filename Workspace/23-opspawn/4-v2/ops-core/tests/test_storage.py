@@ -251,83 +251,89 @@ def test_clear_all_data(valid_agent_info, valid_session_model, valid_workflow_de
 
 # --- Storage Error Tests (Refactored to avoid lazy_fixture) ---
 
-@patch('opscore.storage.threading.Lock') # Patch Lock class where it's used
-def test_save_agent_registration_storage_error(MockLock, valid_agent_info):
+@patch('opscore.storage._agent_registrations_lock') # Patch the lock instance itself
+def test_save_agent_registration_storage_error(mock_lock_instance, valid_agent_info):
     """Test save_agent_registration raises StorageError on underlying exceptions."""
-    # Configure the mocked Lock instance's acquire method
-    mock_instance = MockLock.return_value
-    mock_instance.acquire.side_effect = RuntimeError("Simulated lock error")
+    # Configure the __enter__ method (called by 'with') to raise the error
+    mock_lock_instance.__enter__.side_effect = RuntimeError("Simulated lock error")
 
     with pytest.raises(exceptions.StorageError, match="Failed to save registration"):
         storage.save_agent_registration(valid_agent_info)
-    mock_instance.acquire.assert_called_once() # Verify lock was attempted
+    # Verify __enter__ was called (which implicitly tries to acquire)
+    mock_lock_instance.__enter__.assert_called_once()
 
-@patch('opscore.storage.threading.Lock') # Patch Lock class where it's used
-def test_save_agent_state_storage_error(MockLock, valid_agent_state):
+@patch('opscore.storage._agent_states_lock') # Patch the state lock instance
+@patch('opscore.storage._agent_registrations_lock') # Patch the registration lock instance for setup
+def test_save_agent_state_storage_error(mock_reg_lock_instance, mock_state_lock_instance, valid_agent_state):
     """Test save_agent_state raises StorageError on underlying exceptions."""
-    # Configure the mocked Lock instance's acquire method
-    mock_instance = MockLock.return_value
-    mock_instance.acquire.side_effect = RuntimeError("Simulated lock error")
+    # Configure the state lock mock's __enter__ to fail
+    mock_state_lock_instance.__enter__.side_effect = RuntimeError("Simulated lock error")
 
-    # Prerequisite: Ensure agent is registered (bypassing lock for setup)
-    # We need a separate patch context here to allow the prerequisite save
-    with patch('opscore.storage.threading.Lock') as MockLockSetup:
-        mock_setup_instance = MockLockSetup.return_value
-        mock_setup_instance.acquire.return_value = True # Simulate successful lock for setup
-        mock_setup_instance.release.return_value = True
+    # Configure the registration lock mock to succeed for the setup step
+    mock_reg_lock_instance.__enter__.return_value = None # Simulate successful context entry
+    mock_reg_lock_instance.__exit__.return_value = None  # Simulate context exit
 
-        minimal_agent_info = models.AgentInfo(
-            agentId=valid_agent_state.agentId, agentName="test-prereq", version="1.0", contactEndpoint="http://localhost:1234"
-        )
-        storage.save_agent_registration(minimal_agent_info)
+    # Prerequisite: Ensure agent is registered (using the mocked registration lock)
+    minimal_agent_info = models.AgentInfo(
+        agentId=valid_agent_state.agentId, agentName="test-prereq", version="1.0", contactEndpoint="http://localhost:1234"
+    )
+    storage.save_agent_registration(minimal_agent_info)
+    # Verify setup lock context manager was entered
+    mock_reg_lock_instance.__enter__.assert_called_once()
 
-    # Now test the actual save_agent_state with the failing lock mock active
+    # Now test the actual save_agent_state with the failing state lock mock active
     with pytest.raises(exceptions.StorageError, match="Failed to save state"):
         storage.save_agent_state(valid_agent_state)
-    mock_instance.acquire.assert_called_once() # Verify lock was attempted
+    # Verify the state lock context manager was attempted
+    mock_state_lock_instance.__enter__.assert_called_once()
 
-@patch('opscore.storage.threading.Lock') # Patch Lock class where it's used
-def test_create_session_storage_error(MockLock, valid_session_model):
+@patch('opscore.storage._sessions_lock') # Patch the lock instance itself
+def test_create_session_storage_error(mock_lock_instance, valid_session_model):
     """Test create_session raises StorageError on underlying exceptions (not duplicate ID)."""
-    # Configure the mocked Lock instance's acquire method
-    mock_instance = MockLock.return_value
-    mock_instance.acquire.side_effect = RuntimeError("Simulated lock error")
+    # Configure the __enter__ method to raise the error
+    mock_lock_instance.__enter__.side_effect = RuntimeError("Simulated lock error")
 
     # Use a unique ID to avoid duplicate key error
     unique_session = valid_session_model.model_copy(update={"sessionId": f"sess_generic_error_test_{datetime.now().isoformat()}"})
-    storage._sessions.pop(unique_session.sessionId, None) # Ensure it's clear
+    # Ensure it's clear from the actual storage dict before the test
+    storage._sessions.pop(unique_session.sessionId, None) # This uses the real lock, should be fine
 
     with pytest.raises(exceptions.StorageError, match="Failed to create session"):
         storage.create_session(unique_session)
-    mock_instance.acquire.assert_called_once() # Verify lock was attempted
+    mock_lock_instance.__enter__.assert_called_once() # Verify context manager entry was attempted
 
-@patch('opscore.storage.threading.Lock') # Patch Lock class where it's used
-def test_save_workflow_definition_storage_error(MockLock, valid_workflow_def_model):
+@patch('opscore.storage._workflow_definitions_lock') # Patch the lock instance itself
+def test_save_workflow_definition_storage_error(mock_lock_instance, valid_workflow_def_model):
     """Test save_workflow_definition raises StorageError on underlying exceptions."""
-    # Configure the mocked Lock instance's acquire method
-    mock_instance = MockLock.return_value
-    mock_instance.acquire.side_effect = RuntimeError("Simulated lock error")
+    # Configure the __enter__ method to raise the error
+    mock_lock_instance.__enter__.side_effect = RuntimeError("Simulated lock error")
 
     with pytest.raises(exceptions.StorageError, match="Failed to save workflow definition"):
         storage.save_workflow_definition(valid_workflow_def_model)
-    mock_instance.acquire.assert_called_once() # Verify lock was attempted
+    mock_lock_instance.__enter__.assert_called_once() # Verify context manager entry was attempted
 
-@patch('opscore.storage.threading.Lock') # Patch Lock class where it's used
-def test_update_session_data_storage_error(MockLock, valid_session_model):
+@patch('opscore.storage._sessions_lock') # Patch the session lock instance
+def test_update_session_data_storage_error(mock_lock_instance, valid_session_model):
     """Test update_session_data raises StorageError on underlying exceptions."""
-    # Configure the mocked Lock instance's acquire method
-    mock_instance = MockLock.return_value
-    mock_instance.acquire.side_effect = RuntimeError("Simulated lock error")
 
-    # Need to successfully create the session first, bypassing the lock mock for setup
-    with patch('opscore.storage.threading.Lock') as MockLockSetup:
-         mock_setup_instance = MockLockSetup.return_value
-         mock_setup_instance.acquire.return_value = True
-         mock_setup_instance.release.return_value = True
-         storage.create_session(valid_session_model)
+    # Configure the mock lock's __enter__ to succeed on the first call (for create_session setup)
+    # and fail on the second call (for update_session_data)
+    mock_lock_instance.__enter__.side_effect = [None, RuntimeError("Simulated lock error")]
+    # Mock __exit__ as well for the context manager protocol
+    mock_lock_instance.__exit__.return_value = None
 
-    # Now test the update with the lock failing
+
+    # Need to successfully create the session first (using the configured mock lock)
+    # Ensure session doesn't exist from previous failed runs if any
+    storage._sessions.pop(valid_session_model.sessionId, None) # Uses real lock, should be fine
+    storage.create_session(valid_session_model)
+    # Verify the first (successful) __enter__ call during setup
+    assert mock_lock_instance.__enter__.call_count == 1
+
+
+    # Now test the update with the lock failing on the second __enter__ call
     update_data = {"status": "failed", "last_updated_time": datetime.now(timezone.utc)}
     with pytest.raises(exceptions.StorageError, match="Failed to update session"):
         storage.update_session_data(valid_session_model.sessionId, update_data)
-    mock_instance.acquire.assert_called_once() # Verify lock was attempted
+    # Verify the second (failing) __enter__ call
+    assert mock_lock_instance.__enter__.call_count == 2

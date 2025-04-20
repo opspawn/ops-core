@@ -173,6 +173,10 @@ def create_session(session: WorkflowSession) -> None:
         raise exceptions.StorageError(f"Failed to create session {session_id} due to data issue", original_exception=e) from e
     except Exception as e: # Catch lock errors or other unexpected issues
         logger.error(f"Unexpected error creating session {session_id}: {e}", exc_info=True)
+        # Check if it's the duplicate key StorageError we already raised inside the 'with'
+        if isinstance(e, exceptions.StorageError) and "already exists" in str(e):
+             raise e # Re-raise the specific duplicate key error
+        # Otherwise, wrap other exceptions as a general StorageError
         raise exceptions.StorageError(f"Failed to create session {session_id}", original_exception=e) from e
 
 def read_session(session_id: str) -> Optional[WorkflowSession]:
