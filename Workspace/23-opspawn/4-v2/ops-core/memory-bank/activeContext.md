@@ -1,36 +1,45 @@
-# Active Context: Ops-Core Python Module (Updated - 2025-04-20 @ 15:49)
+# Active Context: Ops-Core Python Module (Updated - 2025-04-20 @ 16:38)
 
 ## 1. Current Work Focus
 - **Completed:** Phase 1, Phase 2, Task 3.1 (SDK), Task 3.2 (CLI), Task 3.4 (AgentKit Integration), Task 3.3 (Middleware), Task 5.6 (AgentKit Requirements Doc Update).
 - **Focus:** Task 4.2 (Real AgentKit Integration Tests) - Partially complete. Fixed original 500 error, now blocked by agent registration/discovery issue (test times out receiving 404s).
 
-## 2. Recent Changes & Decisions (This Session - 2025-04-20 15:06 - 15:49)
-- **Debug Task 4.2 (500 Error):**
-    - Attempted running test via `docker-compose run`, failed due to `docker-compose` not being available inside the container (`FileNotFoundError`). Commented out problematic `docker_compose_up_down` fixture in `test_real_agentkit_workflow.py`.
-    - Attempted running test via `docker-compose run` again, failed due to DNS resolution error (`Temporary failure in name resolution`) when test tried accessing `http://opscore:8000`.
-    - Switched strategy: Ran services via `docker-compose up -d` and ran `pytest` from host.
-    - Successfully reproduced the 500 Internal Server Error on `GET /v1/opscore/agent/{agent_id}/state`.
-    - Analyzed Ops-Core logs (`opscore_error_logs.txt`) and identified the root cause: `AttributeError: 'NoneType' object has no attribute 'state'` in `opscore/api.py` line 192. This occurred because `lifecycle.get_state` returned `None` (as no state was found for the requested agent ID), but the API endpoint didn't handle this `None` case before trying to access `.state`.
-    - Fixed the error by uncommenting the check for `agent_state is None` in `opscore/api.py:get_agent_state` and raising an `HTTPException(404)` in that case.
-- **Task 4.2 (New Blocker):**
-    - Re-ran the integration test after fixing the 500 error.
-    - The test now fails with a `TimeoutError` because the `poll_for_agent_state` helper function receives repeated 404 Not Found errors when checking for the agent's state after startup.
-    - Analysis of Ops-Core logs (`opscore_registration_logs.txt`) confirmed that the agent ID registered via the AgentKit webhook (e.g., `39a97542-985f-4a8a-89f4-ede564f64573`) did not match the ID the test was initially configured to poll (`test-sim-agent-001`).
-    - Temporarily hardcoded the observed registered ID into the test file (`test_real_agentkit_workflow.py`) for debugging.
-    - Re-ran the test with the hardcoded ID. It still failed with a timeout, receiving only 404s. This indicates the agent registration via the webhook is not being successfully processed and stored by Ops-Core within the test's timeout period, even when polling for the correct ID.
+## 2. Recent Changes & Decisions (This Session - 2025-04-20 15:49 - 16:38)
+- **Debug Task 4.2 (Agent Registration/Webhook Issue):**
+    - Continued debugging the `TimeoutError` in `test_real_agentkit_workflow.py` caused by repeated 404s when polling `GET /v1/opscore/agent/{agent_id}/state`.
+    - Initial hypothesis: Issue in webhook processing or storage timing.
+    - Examined `opscore/api.py`, `opscore/lifecycle.py`, and `opscore/storage.py`. Confirmed that `lifecycle.register_agent` *should* save registration and an initial "UNKNOWN" state via `storage.save_agent_registration` and `storage.save_agent_state`.
+    - Encountered and resolved Docker environment issues preventing service startup:
+        - `KeyError: 'ContainerConfig'` during `docker-compose up`. Diagnosed as likely incompatibility between older `docker-compose` (v1) and newer Docker Engine/image format.
+        - `ConnectionRefusedError` when `docker-compose` attempted to connect to the Docker daemon. Diagnosed as Docker daemon not running.
+        - Docker service (`docker.service`) failing to start via systemd socket activation (`failed to load listeners: no sockets found via socket activation`).
+        - Performed Docker reinstallation and troubleshooting steps (checking systemd status, socket file existence/permissions, unit file contents).
+        - Successfully started the Docker daemon directly (`sudo dockerd -H unix:///var/run/docker.sock`) as a workaround for the systemd socket activation issue.
+        - Switched to using `docker compose` (v2 plugin) instead of `docker-compose` (v1).
+        - Resolved a container name conflict (`Error response from daemon: Conflict...`) by removing the old container (`docker rm`).
+        - Successfully started the services (`opscore`, `agentkit_real_service`, `simulated_agent`) using `docker compose up -d --build`.
+    - Ran the integration test again with a diagnostic change to first poll for the "UNKNOWN" state.
+    - Test still failed with `TimeoutError`, receiving 404s for the hardcoded agent ID (`39a97542-985f-4a8a-89f4-ede564f64573`).
+    - Examined Ops-Core logs (`docker logs opscore_service_real`). Confirmed that the webhook was received and processed, and an agent *was* registered with a *different* dynamically generated ID (`07fa3957-a4ce-4bec-b8ed-a129d71f0922`).
+    - Identified the root cause of the 404s: The test was polling for an incorrect/stale agent ID. The agent ID is dynamically generated by AgentKit.
+    - Reverted the temporary hardcoded agent ID in `test_real_agentkit_workflow.py`.
+    - Attempted to modify the test to discover the dynamically generated agent ID from AgentKit's `/v1/agents` endpoint using the `agentkit_client` fixture.
+    - Encountered an `AttributeError: 'async_generator' object has no attribute 'get'` because the test function was incorrectly trying to use the fixture object directly instead of the client instance it yields.
 
 ## 3. Next Steps (Next Session)
-- **Debug Task 4.2 (Registration):** Investigate why the agent registration, triggered by the AgentKit webhook (`POST /v1/opscore/internal/agent/notify`), is not resulting in the agent being found via the `GET /v1/opscore/agent/{agent_id}/state` endpoint within the test timeout. Examine logs from Ops-Core, AgentKit, and the Simulated Agent during startup. Verify webhook delivery and processing.
-- **Complete Task 4.2:** Once the registration issue is resolved, re-run integration tests and ensure the full end-to-end workflow passes.
+- **Debug Task 4.2 (Test Fixture Usage):** Fix the `AttributeError` in `test_real_agentkit_workflow.py` by correctly using the `httpx.AsyncClient` instance provided by the `agentkit_client` fixture to poll AgentKit's `/v1/agents` endpoint.
+- **Debug Task 4.2 (Agent Discovery):** Ensure the test successfully discovers the dynamically generated agent ID from AgentKit.
+- **Complete Task 4.2:** Once the agent ID is correctly obtained and the initial "UNKNOWN" state is verified, ensure the full end-to-end workflow (triggering workflow, agent state transitions to "active" and "idle") passes.
 - **Address `httpx` Warnings:** Eventually address Task B7 related to `TestClient` instantiation in `tests/test_middleware.py`.
 - **Consult `TASK.md`:** Identify next tasks after 4.2 (likely Task 4.3: CI/CD setup).
 
 ## 4. Active Decisions & Considerations
 - Using separate `docker-compose.real-agentkit.yml` for real integration tests.
-- Running integration tests from the host machine against services started with `docker-compose up -d` is more reliable than using `docker-compose run`.
+- Running integration tests from the host machine against services started with `docker compose up -d` is more reliable than using `docker compose run`.
 - AgentKit fixes for Issue #1 are available on branch `feature/issue-1-ops-core-integration-fixes`.
 - The original 500 error in `GET /state` was due to improper handling of `None` return from `lifecycle.get_state`. This is now fixed.
-- **Current Blocker:** The integration test times out waiting for the agent to appear in Ops-Core state after the registration webhook, receiving only 404s. This points to an issue in the registration/webhook processing or storage access timing.
+- **Current Blocker:** The integration test fails with an `AttributeError` when trying to discover the dynamically generated agent ID from AgentKit due to incorrect usage of the `agentkit_client` fixture.
+- The Docker daemon is currently running directly (`sudo dockerd -H unix:///var/run/docker.sock`) as a workaround for the systemd socket activation issue on WSL. This needs to be resolved for a robust setup, but the current focus is on the integration test.
 
 ## 5. Important Patterns & Preferences
 - Continue following Python best practices (PEP8, type hints).
@@ -62,3 +71,6 @@
 - Debugging real AgentKit integration revealed issues with health checks, webhook serialization (fixed in AgentKit branch), and Ops-Core state retrieval (500 error fixed, now 404/timeout).
 - Confirmed need for API key authentication on Ops-Core `GET /state` endpoint.
 - API endpoints should gracefully handle cases where underlying functions (like `lifecycle.get_state`) return `None`, typically by returning appropriate HTTP status codes (e.g., 404).
+- Docker environment issues on WSL (systemd socket activation, docker-compose version incompatibility) can block development and require system-level troubleshooting. Using `docker compose` (v2) is necessary with newer Docker Engine versions.
+- The integration test was failing due to polling for a stale/incorrect dynamically generated agent ID. The test needs to discover the actual ID from AgentKit after registration.
+- Incorrect usage of pytest async fixtures (`async_generator` vs `httpx.AsyncClient` instance) caused an `AttributeError` when attempting to use the client.
