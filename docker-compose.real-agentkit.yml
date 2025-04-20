@@ -1,0 +1,69 @@
+version: '3.8'
+
+services:
+  opscore:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: opscore_service_real # Changed name slightly
+    ports:
+      - "8000:8000" # Map host port 8000 to container port 8000
+    volumes:
+      - .:/app # Mount the current directory to /app for live code changes
+    env_file:
+      - .env # Load environment variables from .env file (create this file locally)
+    # Environment variables can also be defined directly:
+    environment:
+      - OPSCORE_API_KEY=test-api-key # API Key Ops-Core expects from agents/AgentKit SDK
+      # Point to the real agentkit service (internal port is 8000)
+      - AGENTKIT_API_URL=http://agentkit_real_service:8000/v1 # Added /v1 based on AgentKit docs
+    command: uvicorn opscore.api:app --host 0.0.0.0 --port 8000 --reload # Use --reload for development
+
+  agentkit_real_service:
+    build:
+      context: ../agentkit # Build from the cloned AgentKit directory
+      dockerfile: Dockerfile
+    container_name: agentkit_real_service
+    ports:
+      - "8001:8000" # Map host port 8001 to AgentKit's internal port 8000
+    environment:
+      # --- Ops-Core Integration ---
+      # URL for AgentKit SDK to report state TO Ops-Core (using service name)
+      - OPSCORE_API_URL=http://opscore_service_real:8000/v1
+      # API Key for AgentKit SDK to authenticate WITH Ops-Core
+      - OPSCORE_API_KEY=test-api-key # Must match the key Ops-Core expects
+      # URL for AgentKit service to send webhooks TO Ops-Core (using service name)
+      - OPSCORE_WEBHOOK_URL=http://opscore_service_real:8000/v1/opscore/internal/agent/notify
+      # Shared secret for AgentKit -> Ops-Core webhooks
+      - OPSCORE_WEBHOOK_SECRET=super-secret-webhook-key-123 # Replace with a secure secret if needed
+      # --- Optional LLM Keys (Add if needed for specific AgentKit tests/features) ---
+      # - OPENAI_API_KEY=...
+    depends_on:
+      - opscore # Ensure Ops-Core starts first
+    # Add volumes if AgentKit needs live code reload (optional)
+    # volumes:
+    #   - ../agentkit:/app
+    # command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload # Add if needed
+
+  simulated_agent:
+    build:
+      context: ./tests/simulated_agent # Build from the simulated agent directory
+      dockerfile: Dockerfile
+    container_name: simulated_agent_service
+    ports:
+      - "8080:8080" # Map host port 8080 to simulated agent's internal port 8080
+    volumes:
+      - ./tests/simulated_agent:/app # Mount for live code changes
+    environment:
+      - AGENTKIT_API_URL=http://agentkit_real_service:8000/v1 # Point to real AgentKit service
+      - OPSCORE_API_URL=http://opscore_service_real:8000/v1 # Point to Ops-Core service
+      - OPSCORE_API_KEY=test-api-key # Key to authenticate with Ops-Core
+      - AGENT_ID=test-sim-agent-001 # Use a fixed ID for testing
+      - AGENT_NAME=TestSimulatedAgent
+      - AGENT_PORT=8080
+      # Explicitly set the contact endpoint using the service name
+      - AGENT_CONTACT_ENDPOINT=http://simulated_agent_service:8080/task
+    depends_on:
+      - opscore
+      - agentkit_real_service # Ensure Ops-Core and AgentKit start first
+    command: uvicorn main:app --host 0.0.0.0 --port 8080 --reload # Use reload for test dev
