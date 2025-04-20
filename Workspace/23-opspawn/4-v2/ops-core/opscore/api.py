@@ -185,9 +185,11 @@ async def get_agent_state(agent_id: str):
    # The AgentNotFoundError should be raised by get_state if not found,
    # and caught by the middleware. This check might be redundant if get_state guarantees raising.
    # Let's assume get_state raises AgentNotFoundError as expected.
-   # if not agent_state:
-   #      logger.warning(f"Agent {agent_id} not found during GET state request (lifecycle.get_state returned None).")
-   #      raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Agent {agent_id} not found.")
+   # However, lifecycle.get_state returns None if no state history exists, even if the agent is registered.
+   # We should handle the None case explicitly here.
+   if not agent_state:
+        logger.warning(f"No state found for agent {agent_id} during GET state request (lifecycle.get_state returned None). Returning 404.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No state found for agent {agent_id}")
 
    logger.debug(f"Returning state for agent {agent_id}: {agent_state.state}")
    return agent_state
