@@ -27,7 +27,7 @@
    - [X] Task 3.4: Ensure all endpoints interoperate seamlessly with AgentKit’s integration interfaces. (Completed: Debugged and fixed integration test failures related to webhook registration and state updates - 2025-04-18)
    - [X] Task 3.1: Integrate the Ops‑Core API endpoints with a Python SDK. (Completed: Created sync/async clients, models, exceptions, tests in `opscore_sdk/` - 2025-04-19)
    - [X] Task 3.2: Create a simple CLI application to interact with Ops‑Core endpoints. (Completed: Created `opscore_cli/` with commands and unit tests - 2025-04-19)
-    - [ ] Task 3.3: Implement middleware for structured logging and standardized error handling across endpoints. (Partially Complete: Code implemented, tests added but failing - 2025-04-19)
+    - [ ] Task 3.3: Implement middleware for structured logging and standardized error handling across endpoints. (Partially Complete: Code implemented, most test failures resolved, 8 remain - 2025-04-19)
 - **Phase 4 Tasks:**
     - [X] Task 4.1: Write unit tests for each subsystem using pytest. (Initial implementation complete; lifecycle coverage 100%, API coverage 89%).
     - [ ] Task 4.2: Develop integration tests simulating complete workflows. (Webhook/state update tests implemented but failing connection errors - 2025-04-19).
@@ -38,15 +38,17 @@
 - **Backlog:** Persistent storage/queue, advanced debugging/security, async messaging, etc.
 
 ## 3. Current Status Overview
-- **Overall:** Core functionalities for lifecycle management and workflow orchestration are implemented with agent state checking and comprehensive custom exception handling. API endpoints for interaction are available, now with centralized middleware for logging and error handling. Webhook mechanism for AgentKit integration implemented. A basic Python SDK (`opscore_sdk/`) and a CLI (`opscore_cli/`) are available. **Significant test failures exist.**
-- **Blockers/Dependencies:** Numerous test failures across multiple modules block completion of Task 3.3.
+- **Overall:** Core functionalities for lifecycle management and workflow orchestration are implemented with agent state checking and comprehensive custom exception handling. API endpoints for interaction are available, now with centralized middleware for logging and error handling. Webhook mechanism for AgentKit integration implemented. A basic Python SDK (`opscore_sdk/`) and a CLI (`opscore_cli/`) are available. **8 test failures remain.**
+- **Blockers/Dependencies:** 8 test failures block completion of Task 3.3.
 
 ## 4. Known Issues
-- **Significant Test Failures:** 29 test failures and 12 errors reported in the last `pytest` run (excluding integration tests) after implementing middleware (Task 3.3) and subsequent refactoring. Failures span `test_api`, `test_lifecycle`, `test_middleware`, `test_storage`.
+- **Remaining Test Failures (8):**
+    - `test_agentkit_integration.py` (2): `ConnectError` - likely Docker/network issue, deferred.
+    - `test_api.py` (1): `AssertionError` in `test_trigger_workflow_success_with_inline_def` (mock not called).
+    - `test_storage.py` (5): `Failed: DID NOT RAISE StorageError` - error handling within storage functions needs further review.
 - Test coverage for `logging_config.py`, `models.py`, `agentkit_client.py`, and `workflow.py` needs review/improvement (pending test fixes).
 - Task queue (`workflow._task_queue`) is still in-memory.
 - Re-queue logic in `process_next_task` uses immediate re-queue instead of delayed backoff.
-- AgentKit integration tests (`test_agentkit_integration.py`) failing with connection errors (likely Docker environment issue).
 
 ## 5. Evolution of Project Decisions
 - **[2025-04-17]** Confirmed use of FastAPI over Flask.
@@ -71,4 +73,5 @@
 - **[2025-04-18]** Debugged and fixed integration test failures (Task 3.4). Resolved issues related to Docker execution context, indentation errors, type errors, missing exceptions, and exception handling logic in `api.py`, `lifecycle.py`, and `exceptions.py`.
 - **[2025-04-19]** Created Python SDK (`opscore_sdk/`) with sync/async clients, models, exceptions, and unit tests using `pytest-httpx` (Task 3.1). Added `pytest-httpx` dependency. Resolved async fixture issues in tests.
 - **[2025-04-19]** Created CLI application (`opscore_cli/`) using `click` and added unit tests (Task 3.2). Fixed test failures related to imports and `CliRunner` usage.
-- **[2025-04-19]** Implemented API middleware for logging and error handling (`opscore/middleware.py`, Task 3.3). Refactored API routes (`opscore/api.py`) to use middleware. Added tests (`tests/test_middleware.py`). Refactored multiple test files and core modules (`exceptions.py`, `storage.py`, `lifecycle.py`, `conftest.py`) to address test failures uncovered during middleware implementation. Removed `pytest-lazy-fixture` dependency due to incompatibility. Task 3.3 remains incomplete due to outstanding test failures.
+- **[2025-04-19]** Implemented API middleware for logging and error handling (`opscore/middleware.py`, Task 3.3). Refactored API routes (`opscore/api.py`) to use middleware. Added tests (`tests/test_middleware.py`). Refactored multiple test files and core modules (`exceptions.py`, `storage.py`, `lifecycle.py`, `conftest.py`) to address test failures uncovered during middleware implementation. Removed `pytest-lazy-fixture` dependency due to incompatibility. (Previous Session)
+- **[2025-04-19]** Debugged Task 3.3 test failures: Fixed fixture issues in `test_middleware.py`, corrected argument passing in `test_lifecycle.py`, improved exception wrapping in `opscore/storage.py`. Reduced failures from 31 to 8. Task 3.3 remains incomplete.

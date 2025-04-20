@@ -128,3 +128,19 @@ def valid_task_data_dict() -> dict:
     }
 
 # Add more fixtures as needed
+
+# --- FastAPI Test Client Fixture ---
+
+import pytest_asyncio # Use pytest_asyncio for async fixtures
+from httpx import AsyncClient
+from fastapi import FastAPI
+from opscore.api import app as fastapi_app # Import the app instance
+
+@pytest_asyncio.fixture(scope="function") # Function scope for isolation
+async def test_client(clear_storage_before_each_test) -> AsyncClient: # Ensure storage is cleared
+    """
+    Provides an asynchronous test client for the FastAPI application.
+    """
+    # Use 'async with' for proper client setup and teardown
+    async with AsyncClient(app=fastapi_app, base_url="http://testserver") as client:
+        yield client # Provide the client to the test function

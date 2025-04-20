@@ -40,15 +40,17 @@ def save_agent_registration(agent_info: AgentInfo):
     """Saves agent registration details."""
     agent_id = agent_info.agentId
     logger.debug(f"Saving registration for agent {agent_id}")
-    with _agent_registrations_lock:
-        try:
+    try:
+        with _agent_registrations_lock:
             # Store as dict for simplicity in this in-memory version
             _agent_registrations[agent_id] = agent_info.model_dump(mode='json')
             logger.info(f"Registration saved for agent {agent_id}")
-        except (TypeError, ValueError) as e: # Catch more specific errors if data is malformed post-validation
-            logger.error(f"Data error during agent registration save for {agent_id}: {e}", exc_info=True)
-            # Re-raise as StorageError or a more specific data error if needed
-            raise exceptions.StorageError(f"Failed to save registration for agent {agent_id} due to data issue", original_exception=e) from e
+    except (TypeError, ValueError) as e: # Catch specific data errors outside lock if model_dump fails, though unlikely
+        logger.error(f"Data error preparing agent registration for {agent_id}: {e}", exc_info=True)
+        raise exceptions.StorageError(f"Failed to save registration for agent {agent_id} due to data issue", original_exception=e) from e
+    except Exception as e: # Catch lock errors or other unexpected issues
+        logger.error(f"Unexpected error saving registration for agent {agent_id}: {e}", exc_info=True)
+        raise exceptions.StorageError(f"Failed to save registration for agent {agent_id}", original_exception=e) from e
 
 def read_agent_registration(agent_id: str) -> Optional[AgentInfo]:
     """Retrieves agent registration details."""
@@ -97,21 +99,24 @@ def save_agent_state(agent_state: AgentState):
     """Saves an agent state update (appends to history)."""
     agent_id = agent_state.agentId
     logger.debug(f"Saving state for agent {agent_id}: {agent_state.state}")
-    with _agent_states_lock:
-        if agent_id not in _agent_states:
-            _agent_states[agent_id] = []
-        try:
+    try:
+        with _agent_states_lock:
+            if agent_id not in _agent_states:
+                _agent_states[agent_id] = []
             # Store as dict for simplicity in this in-memory version
             _agent_states[agent_id].append(agent_state.model_dump(mode='json'))
             # Optional: Limit history size if needed
-        # MAX_HISTORY = 100
-        # if len(_agent_states[agent_id]) > MAX_HISTORY:
+            # MAX_HISTORY = 100
+            # if len(_agent_states[agent_id]) > MAX_HISTORY:
             #     logger.debug(f"Trimming state history for agent {agent_id}")
             #     _agent_states[agent_id] = _agent_states[agent_id][-MAX_HISTORY:]
             logger.info(f"State saved for agent {agent_id}")
-        except (TypeError, ValueError) as e: # Catch more specific errors
-            logger.error(f"Data error during agent state save for {agent_id}: {e}", exc_info=True)
-            raise exceptions.StorageError(f"Failed to save state for agent {agent_id} due to data issue", original_exception=e) from e
+    except (TypeError, ValueError) as e: # Catch specific data errors (e.g., model_dump)
+        logger.error(f"Data error during agent state save for {agent_id}: {e}", exc_info=True)
+        raise exceptions.StorageError(f"Failed to save state for agent {agent_id} due to data issue", original_exception=e) from e
+    except Exception as e: # Catch lock errors or other unexpected issues
+        logger.error(f"Unexpected error saving state for agent {agent_id}: {e}", exc_info=True)
+        raise exceptions.StorageError(f"Failed to save state for agent {agent_id}", original_exception=e) from e
 
 def read_latest_agent_state(agent_id: str) -> Optional[AgentState]:
     """Retrieves the most recent state for an agent."""
@@ -154,18 +159,21 @@ def create_session(session: WorkflowSession) -> None:
     """Creates and saves a new workflow session."""
     session_id = session.sessionId
     logger.debug(f"Attempting to create session {session_id}")
-    with _sessions_lock:
-        if session_id in _sessions:
-            logger.error(f"Session creation failed: Session ID {session_id} already exists.")
-            # Raise a specific storage error for duplicate keys
-            raise exceptions.StorageError(f"Session ID {session_id} already exists.")
-        # Store the model directly
-        try:
+    try:
+        with _sessions_lock:
+            if session_id in _sessions:
+                logger.error(f"Session creation failed: Session ID {session_id} already exists.")
+                # Raise a specific storage error for duplicate keys
+                raise exceptions.StorageError(f"Session ID {session_id} already exists.")
+            # Store the model directly
             _sessions[session_id] = session
             logger.info(f"Session {session_id} created successfully.")
-        except (TypeError, ValueError) as e: # Catch more specific errors
-            logger.error(f"Data error during session creation for {session_id}: {e}", exc_info=True)
-            raise exceptions.StorageError(f"Failed to create session {session_id} due to data issue", original_exception=e) from e
+    except (TypeError, ValueError) as e: # Catch specific data errors (less likely here)
+        logger.error(f"Data error during session creation for {session_id}: {e}", exc_info=True)
+        raise exceptions.StorageError(f"Failed to create session {session_id} due to data issue", original_exception=e) from e
+    except Exception as e: # Catch lock errors or other unexpected issues
+        logger.error(f"Unexpected error creating session {session_id}: {e}", exc_info=True)
+        raise exceptions.StorageError(f"Failed to create session {session_id}", original_exception=e) from e
 
 def read_session(session_id: str) -> Optional[WorkflowSession]:
     """Retrieves workflow session data by ID."""
@@ -198,34 +206,42 @@ def update_session_data(session_id: str, update_data: Dict[str, Any]) -> Workflo
         exceptions.StorageError: If there's an issue saving the updated session.
     """
     logger.debug(f"Attempting to update session {session_id} with data: {update_data}")
-    with _sessions_lock:
-        if session_id not in _sessions:
-            logger.error(f"Update failed: Session {session_id} not found.")
-            raise exceptions.SessionNotFoundError(session_id)
+    try:
+        with _sessions_lock:
+            if session_id not in _sessions:
+                logger.error(f"Update failed: Session {session_id} not found.")
+                raise exceptions.SessionNotFoundError(session_id)
 
-        existing_session = _sessions[session_id]
+            existing_session = _sessions[session_id]
 
-        # Create a new session object with updated fields
-        # This leverages Pydantic's validation on update
-        try:
-            # Use model_copy for safe updates if available and appropriate
-            # For now, dictionary update and re-validation
-            updated_session_data = existing_session.model_dump()
-            updated_session_data.update(update_data)
-            # Ensure last_updated_time is always set by the caller or here
-            if 'last_updated_time' not in update_data:
-                 updated_session_data['last_updated_time'] = datetime.now(timezone.utc) # Use timezone-aware
+            # Create a new session object with updated fields
+            # This leverages Pydantic's validation on update
+            try:
+                # Use model_copy for safe updates if available and appropriate
+                # For now, dictionary update and re-validation
+                updated_session_data = existing_session.model_dump()
+                updated_session_data.update(update_data)
+                # Ensure last_updated_time is always set by the caller or here
+                if 'last_updated_time' not in update_data:
+                     updated_session_data['last_updated_time'] = datetime.now(timezone.utc) # Use timezone-aware
 
-            updated_session = WorkflowSession(**updated_session_data)
-            _sessions[session_id] = updated_session # Replace the old session object
-            logger.info(f"Session {session_id} updated successfully.")
-            return updated_session
-        except ValueError as e: # Catch Pydantic validation errors specifically
-            logger.error(f"Failed to update session {session_id} due to invalid data: {e}", exc_info=True)
-            # Re-raise the specific InvalidStateError caught from Pydantic validation
-            raise exceptions.InvalidStateError(f"Invalid update data for session {session_id}: {e}") from e
-        # Removed broad except Exception here as Pydantic validation errors are caught above
-        # Lock errors should propagate out of the 'with' block
+                updated_session = WorkflowSession(**updated_session_data)
+                _sessions[session_id] = updated_session # Replace the old session object
+                logger.info(f"Session {session_id} updated successfully.")
+                return updated_session
+            except ValueError as e: # Catch Pydantic validation errors specifically
+                logger.error(f"Failed to update session {session_id} due to invalid data: {e}", exc_info=True)
+                # Re-raise the specific InvalidStateError caught from Pydantic validation
+                raise exceptions.InvalidStateError(f"Invalid update data for session {session_id}: {e}") from e
+            # No need for broad except Exception here, as it's caught outside the 'with' block
+
+    except Exception as e: # Catch lock errors or other unexpected issues during the update process
+        logger.error(f"Unexpected error updating session {session_id}: {e}", exc_info=True)
+        # Avoid wrapping SessionNotFoundError or InvalidStateError again
+        if not isinstance(e, (exceptions.SessionNotFoundError, exceptions.InvalidStateError)):
+            raise exceptions.StorageError(f"Failed to update session {session_id}", original_exception=e) from e
+        else:
+            raise e # Re-raise the specific caught exceptions
 
 def delete_session(session_id: str) -> bool:
     """Deletes a workflow session by ID."""
@@ -245,14 +261,17 @@ def save_workflow_definition(definition: WorkflowDefinition):
     """Saves a workflow definition."""
     workflow_id = definition.id
     logger.debug(f"Saving workflow definition {workflow_id}")
-    with _workflow_definitions_lock:
-        try:
+    try:
+        with _workflow_definitions_lock:
             # Store as dict
             _workflow_definitions[workflow_id] = definition.model_dump(mode='json')
             logger.info(f"Workflow definition {workflow_id} saved.")
-        except (TypeError, ValueError) as e: # Catch more specific errors
-            logger.error(f"Data error saving workflow definition {workflow_id}: {e}", exc_info=True)
-            raise exceptions.StorageError(f"Failed to save workflow definition {workflow_id} due to data issue", original_exception=e) from e
+    except (TypeError, ValueError) as e: # Catch specific data errors (e.g., model_dump)
+        logger.error(f"Data error saving workflow definition {workflow_id}: {e}", exc_info=True)
+        raise exceptions.StorageError(f"Failed to save workflow definition {workflow_id} due to data issue", original_exception=e) from e
+    except Exception as e: # Catch lock errors or other unexpected issues
+        logger.error(f"Unexpected error saving workflow definition {workflow_id}: {e}", exc_info=True)
+        raise exceptions.StorageError(f"Failed to save workflow definition {workflow_id}", original_exception=e) from e
 
 def read_workflow_definition(workflow_id: str) -> Optional[WorkflowDefinition]:
     """Retrieves a workflow definition."""

@@ -4,6 +4,7 @@ Tests for the custom FastAPI middleware in opscore.middleware.
 """
 
 import pytest
+import pytest_asyncio # Import for async fixture
 import logging
 import json # Import json for log parsing
 from fastapi import FastAPI, Request, HTTPException, status
@@ -44,27 +45,27 @@ def test_app():
     async def route_http_exception():
         raise HTTPException(status_code=status.HTTP_418_IM_A_TEAPOT, detail="I'm a teapot")
 
-    # Add middleware in the correct order
-    app.add_middleware(ErrorHandlerMiddleware)
+    # Add middleware in the standard order: Logging first, then Error Handling
     app.add_middleware(RequestLoggingMiddleware)
+    app.add_middleware(ErrorHandlerMiddleware)
 
     return app
 
-@pytest.fixture
-async def test_client(test_app):
-    """Fixture to create an httpx AsyncClient for the test app."""
-    # Return the client directly, context managed by AsyncClient
-    # pytest-asyncio should handle the async fixture correctly
-    return AsyncClient(app=test_app)
+@pytest_asyncio.fixture # Use pytest_asyncio decorator
+async def local_middleware_client(test_app): # Rename fixture
+    """Fixture to create an httpx AsyncClient for the local middleware test app."""
+    # Use async with for proper client lifecycle management
+    async with AsyncClient(app=test_app, base_url="http://testserver") as client:
+        yield client # Yield the client to the test
 
 # --- Test Cases ---
 
 @pytest.mark.asyncio
-async def test_request_logging_middleware_success(test_client, caplog):
+async def test_request_logging_middleware_success(local_middleware_client, caplog): # Use renamed fixture
     """Verify logs for a successful request."""
     caplog.set_level(logging.INFO) # Ensure INFO level logs are captured
 
-    response = await test_client.get("/test/success")
+    response = await local_middleware_client.get("/test/success") # Use renamed fixture
 
     assert response.status_code == 200
     assert response.text == "Success"
@@ -92,16 +93,17 @@ async def test_request_logging_middleware_success(test_client, caplog):
     assert "process_time_ms" in outgoing_log.__dict__ # Check process time exists
 
 @pytest.mark.asyncio
-async def test_request_logging_middleware_error(test_client, caplog):
+async def test_request_logging_middleware_error(local_middleware_client, caplog): # Use renamed fixture
     """Verify logs when an error occurs (handled by ErrorHandlerMiddleware)."""
     caplog.set_level(logging.INFO)
 
-    response = await test_client.get("/test/generic_exception") # This will raise ValueError
+    response = await local_middleware_client.get("/test/generic_exception") # Use renamed fixture
 
     assert response.status_code == 500 # ErrorHandlerMiddleware should return 500
 
     # Check log records from RequestLoggingMiddleware
-    log_records = [rec for rec in caplog.records if rec.name == 'opscore.middleware' and rec.funcName == 'dispatch' and 'RequestLoggingMiddleware' in rec.pathname]
+    # Filter logs specifically from the RequestLoggingMiddleware based on logger name
+    log_records = [rec for rec in caplog.records if rec.name == 'opscore.middleware']
 
     assert len(log_records) >= 2 # Expect at least one incoming and one outgoing log
 
@@ -111,26 +113,27 @@ async def test_request_logging_middleware_error(test_client, caplog):
     assert getattr(incoming_log, 'method', None) == "GET"
     assert getattr(incoming_log, 'path', None) == "/test/generic_exception"
 
-    # Find outgoing log (error case)
+    # Find outgoing log (error case) - This log comes from the RequestLoggingMiddleware's except block
     outgoing_log = next((rec for rec in log_records if rec.message == "Outgoing response (error occurred)"), None)
     assert outgoing_log is not None
     assert outgoing_log.levelname == "INFO"
     assert getattr(outgoing_log, 'method', None) == "GET"
     assert getattr(outgoing_log, 'path', None) == "/test/generic_exception"
-    assert getattr(outgoing_log, 'status_code', None) is not None # Status code logged here depends on timing
+    # The status code logged here reflects the state *before* ErrorHandlerMiddleware creates the final 500 response
+    assert getattr(outgoing_log, 'status_code', None) is not None
     assert "process_time_ms" in outgoing_log.__dict__
 
 # --- ErrorHandlerMiddleware Tests ---
 
 @pytest.mark.asyncio
-async def test_error_handler_opscore_error_agent_not_found(test_client, caplog):
+async def test_error_handler_opscore_error_agent_not_found(local_middleware_client, caplog): # Use renamed fixture
     """Verify handling of a specific OpsCoreError (AgentNotFoundError)."""
     caplog.set_level(logging.ERROR)
     error_instance = AgentNotFoundError("test-agent-id")
     expected_status = get_status_code_for_exception(error_instance) # Should be 404
     expected_detail = str(error_instance)
 
-    response = await test_client.get("/test/agent_not_found")
+    response = await local_middleware_client.get("/test/agent_not_found") # Use renamed fixture
 
     assert response.status_code == expected_status
     assert response.json() == {"detail": expected_detail}
@@ -144,14 +147,14 @@ async def test_error_handler_opscore_error_agent_not_found(test_client, caplog):
     assert getattr(error_log, 'path', None) == "/test/agent_not_found"
 
 @pytest.mark.asyncio
-async def test_error_handler_opscore_error_invalid_state(test_client, caplog):
+async def test_error_handler_opscore_error_invalid_state(local_middleware_client, caplog): # Use renamed fixture
     """Verify handling of a specific OpsCoreError (InvalidStateError)."""
     caplog.set_level(logging.ERROR)
     error_instance = InvalidStateError("Invalid state provided")
     expected_status = get_status_code_for_exception(error_instance) # Should be 400
     expected_detail = str(error_instance)
 
-    response = await test_client.get("/test/invalid_state")
+    response = await local_middleware_client.get("/test/invalid_state") # Use renamed fixture
 
     assert response.status_code == expected_status
     assert response.json() == {"detail": expected_detail}
@@ -165,13 +168,13 @@ async def test_error_handler_opscore_error_invalid_state(test_client, caplog):
     assert getattr(error_log, 'path', None) == "/test/invalid_state"
 
 @pytest.mark.asyncio
-async def test_error_handler_generic_exception(test_client, caplog):
+async def test_error_handler_generic_exception(local_middleware_client, caplog): # Use renamed fixture
     """Verify handling of an unexpected generic Exception."""
     caplog.set_level(logging.CRITICAL) # Unhandled exceptions are logged as CRITICAL
     expected_status = 500
     expected_detail = "Internal Server Error"
 
-    response = await test_client.get("/test/generic_exception")
+    response = await local_middleware_client.get("/test/generic_exception") # Use renamed fixture
 
     assert response.status_code == expected_status
     assert response.json() == {"detail": expected_detail}
@@ -186,13 +189,13 @@ async def test_error_handler_generic_exception(test_client, caplog):
     assert "traceback" in critical_log.__dict__ # Check traceback was logged
 
 @pytest.mark.asyncio
-async def test_error_handler_does_not_catch_http_exception(test_client, caplog):
+async def test_error_handler_does_not_catch_http_exception(local_middleware_client, caplog): # Use renamed fixture
     """Verify that standard HTTPExceptions raised by routes are not caught."""
     caplog.set_level(logging.ERROR)
     expected_status = 418 # I'm a teapot
     expected_detail = "I'm a teapot"
 
-    response = await test_client.get("/test/http_exception")
+    response = await local_middleware_client.get("/test/http_exception") # Use renamed fixture
 
     assert response.status_code == expected_status
     assert response.json() == {"detail": expected_detail}
