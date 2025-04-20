@@ -1,10 +1,10 @@
-# Active Context: Ops-Core Python Module (Updated - 2025-04-19 @ 22:39)
+# Active Context: Ops-Core Python Module (Updated - 2025-04-19 @ 23:03)
 
 ## 1. Current Work Focus
-- **Completed:** Phase 1, Phase 2, Task 3.1 (SDK), Task 3.2 (CLI), Task 3.4 (AgentKit Integration), **Task 3.3 (Middleware)**.
-- **Focus:** Proceeding to next tasks (likely Phase 4/5 or Backlog).
+- **Completed:** Phase 1, Phase 2, Task 3.1 (SDK), Task 3.2 (CLI), Task 3.4 (AgentKit Integration), Task 3.3 (Middleware), **Task 5.6 (AgentKit Requirements Doc Update)**.
+- **Focus:** Proceeding to next tasks (likely Task 4.2).
 
-## 2. Recent Changes & Decisions (This Session - 2025-04-19 21:59 - 22:39)
+## 2. Recent Changes & Decisions (This Session - 2025-04-19 21:59 - 23:03)
 - **Task 3.3 (Completed): Implement Middleware & Resolve Test Failures:**
     - **Debugged Remaining 8 Test Failures:**
         - **Storage Tests (5):** Resolved `Failed: DID NOT RAISE StorageError` in `tests/test_storage.py`. Root cause was incorrect mocking of `threading.Lock` instances. Corrected tests to patch the lock instance itself and configure its `__enter__` method to simulate errors within the `with` statement context.
@@ -12,9 +12,16 @@
         - **Integration Tests (2):** Resolved `ConnectError` in `tests/test_agentkit_integration.py`. Root cause was the required Docker services (`opscore`, `mock-agentkit`) not running. Started services using `docker-compose up -d`.
     - **Verification:** Ran the full test suite (`pytest`), resulting in 149 passed tests, confirming fixes and no regressions. Identified 6 non-critical `httpx` deprecation warnings in `tests/test_middleware.py` to be addressed later (added Task B7).
     - **Status:** Task 3.3 is complete.
+- **Task 5.6 (Completed): Update AgentKit Requirements:**
+    - Reviewed `AGENTKIT_REQUIREMENTS.md`.
+    - Updated the document to comprehensively include requirements for:
+        - Agent registration webhooks (existing).
+        - Task dispatch endpoint (`POST /v1/agents/{agent_id}/run`).
+        - Agent state update callbacks (via SDK to `POST /v1/opscore/agent/{agent_id}/state`).
+    - Added notes on how AgentKit developers can test integration by mocking Ops-Core endpoints.
 
 ## 3. Next Steps (Next Session)
-- **Consult `TASK.md`:** Identify the next highest priority incomplete task (likely Task 2.9, 2.10, 4.2, 4.3, or Phase 5).
+- **Consult `TASK.md`:** Identify the next highest priority incomplete task (likely **Task 4.2: Develop integration tests simulating complete workflows**).
 - **Address `httpx` Warnings:** Eventually address Task B7 related to `TestClient` instantiation in `tests/test_middleware.py`.
 - **Refine Workflow Definition:** Define and validate the schema for `WorkflowDefinition.tasks` more strictly in `models.py`. (Deferred)
 - **Refine Re-queue Logic:** Implement proper delay/backoff for re-queuing tasks when agents are busy (currently immediate re-queue). (Deferred)

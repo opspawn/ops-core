@@ -84,6 +84,7 @@ This TASK.md document provides a detailed, step-by-step checklist for developing
 - [ ] **Task 5.2:** Generate interactive API documentation using Swagger/OpenAPI.
 - [ ] **Task 5.3:** Create sample projects and tutorials illustrating how to integrate Ops‑Core with AgentKit.
 - [ ] **Task 5.4:** Document configuration settings, environment variables, and dependencies in a dedicated configuration guide.
+- [X] **Task 5.6:** Update `AGENTKIT_REQUIREMENTS.md` to be comprehensive, including state callbacks, dispatch endpoint, and testing notes. (Completed - 2025-04-19)
 - [ ] **Task 5.5:** Perform a final review and consolidate all project documentation for final integration and future enhancements.
 
 ---
