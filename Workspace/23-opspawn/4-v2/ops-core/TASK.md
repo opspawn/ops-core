@@ -71,7 +71,7 @@ This TASK.md document provides a detailed, step-by-step checklist for developing
      - [X] Validate agent registration with both valid and invalid data.
      - [X] Test state transitions and session tracking.
     - Verify workflow sequencing and error recovery functionalities.
-- [ ] **Task 4.2:** Develop integration tests simulating complete workflows (e.g., agent registration → state update → workflow execution).
+- [P] **Task 4.2:** Develop integration tests simulating complete workflows (e.g., agent registration → state update → workflow execution). (Status: Setup complete with real AgentKit and Simulated Agent in `docker-compose.real-agentkit.yml`. Tests created in `tests/integration/test_real_agentkit_workflow.py` but currently failing due to 500 error in Ops-Core `GET /state` endpoint. Blocked pending investigation of Ops-Core logs. - 2025-04-20)
 - [ ] **Task 4.3:** Set up GitHub Actions to automatically run tests, enforce linting, and maintain code style.
 - [ ] **Task 4.4:** Perform performance and load testing on API endpoints to gauge response times.
 - [ ] **Task 4.5:** Conduct User Acceptance Testing (UAT) with internal scenarios and sample use cases.

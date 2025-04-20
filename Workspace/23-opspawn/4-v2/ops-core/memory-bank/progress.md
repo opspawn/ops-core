@@ -14,7 +14,8 @@
     - Exceptions (`exceptions.py`): Custom exception hierarchy defined and fully integrated with all core modules.
 - **API Endpoints (`api.py`):** `/health`, `POST /v1/opscore/agent/{agentId}/state`, `GET /v1/opscore/agent/{agentId}/state`, `/v1/opscore/agent/{agentId}/workflow`, `POST /v1/opscore/internal/agent/notify` implemented, using custom exceptions with proper HTTP status code mappings. (Test coverage needs update)
 - **Unit Tests:** Test suite expanded for storage, lifecycle, workflow, and API modules using pytest. Tests for lifecycle, workflow, storage updated for custom exceptions. (Need to re-run after recent changes).
-- **Integration Tests (Mock AgentKit):** Tests rewritten (`tests/test_agentkit_integration.py`) using `pytest-asyncio` and `httpx` to cover webhook registration and state update callbacks. **Now passing after debugging.**
+- **Integration Tests (Mock AgentKit):** Tests rewritten (`tests/test_agentkit_integration.py`) using `pytest-asyncio` and `httpx` to cover webhook registration and state update callbacks. Passing.
+- **Integration Tests (Real AgentKit):** Setup complete (`docker-compose.real-agentkit.yml`, `tests/simulated_agent/`, `tests/integration/test_real_agentkit_workflow.py`). Tests currently **failing** due to Ops-Core internal error (500 on GET /state). (Task 4.2 Partially Complete)
 - **Python SDK (`opscore_sdk/`):** Sync and async clients implemented with basic API coverage (state update/get, workflow trigger). Unit tests added using `pytest-httpx`.
 - **CLI Application (`opscore_cli/`):** Basic CLI implemented using `click` with commands for state and workflow interaction. Unit tests added and passing.
 
@@ -30,7 +31,7 @@
     - [X] Task 3.3: Implement middleware for structured logging and standardized error handling across endpoints. (Completed: Middleware implemented, all 31 related test failures resolved - 2025-04-19)
     - **Phase 4 Tasks:**
         - [X] Task 4.1: Write unit tests for each subsystem using pytest. (Initial implementation complete; lifecycle coverage 100%, API coverage 89%).
-        - [ ] Task 4.2: Develop integration tests simulating complete workflows. (Webhook/state update tests implemented and passing - 2025-04-19).
+        - [P] Task 4.2: Develop integration tests simulating complete workflows. (Setup complete, tests failing due to Ops-Core 500 error on GET /state. Blocked. - 2025-04-20).
    - [ ] Task 4.3: Set up GitHub Actions for CI/CD (testing, linting).
     - [ ] Task 4.4: Perform performance and load testing on API endpoints.
     - [ ] Task 4.5: Conduct User Acceptance Testing (UAT).
@@ -38,10 +39,11 @@
 - **Backlog:** Persistent storage/queue, advanced debugging/security, async messaging, etc.
 
 ## 3. Current Status Overview
-- **Overall:** Core functionalities for lifecycle management and workflow orchestration are implemented with agent state checking and comprehensive custom exception handling. API endpoints for interaction are available, now with centralized middleware for logging and error handling. Webhook mechanism for AgentKit integration implemented and tested. A basic Python SDK (`opscore_sdk/`) and a CLI (`opscore_cli/`) are available. **All tests passing.**
-- **Blockers/Dependencies:** None currently.
+- **Overall:** Core functionalities for lifecycle management and workflow orchestration are implemented with agent state checking and comprehensive custom exception handling. API endpoints for interaction are available, now with centralized middleware for logging and error handling. Webhook mechanism for AgentKit integration implemented and tested (requires AgentKit fixes from issue #1). A basic Python SDK (`opscore_sdk/`) and a CLI (`opscore_cli/`) are available. Unit tests and mock integration tests passing. **Real integration tests (Task 4.2) are blocked.**
+- **Blockers/Dependencies:** Task 4.2 is blocked by an internal 500 error in Ops-Core's `GET /v1/opscore/agent/{agent_id}/state` endpoint. Requires investigation of Ops-Core logs.
 
 ## 4. Known Issues
+- **Task 4.2 Blocker:** Ops-Core returns 500 Internal Server Error on `GET /v1/opscore/agent/{agent_id}/state` during real integration tests.
 - **`httpx` Deprecation Warnings:** 6 warnings in `tests/test_middleware.py` related to `TestClient` instantiation (Task B7).
 - Test coverage for `logging_config.py`, `models.py`, `agentkit_client.py`, and `workflow.py` needs review/improvement.
 - Task queue (`workflow._task_queue`) is still in-memory.
@@ -74,3 +76,5 @@
 - **[2025-04-19]** Debugged Task 3.3 test failures: Fixed fixture issues in `test_middleware.py`, corrected argument passing in `test_lifecycle.py`, improved exception wrapping in `opscore/storage.py`. Reduced failures from 31 to 8. (Previous Session)
 - **[2025-04-19]** Completed Task 3.3: Resolved remaining 8 test failures by correcting lock mocking in `tests/test_storage.py`, fixing inline definition handling in `opscore/api.py`, and ensuring Docker services were running for integration tests. Added Task B7 for `httpx` warnings.
 - **[2025-04-19]** Completed Task 5.6: Updated `AGENTKIT_REQUIREMENTS.md` to be comprehensive, including state callbacks, dispatch endpoint, and testing notes.
+- **[2025-04-20]** Task 4.2 Setup: Cloned real AgentKit, created `docker-compose.real-agentkit.yml`, created Simulated Agent service (`tests/simulated_agent/`), created integration test file (`tests/integration/test_real_agentkit_workflow.py`).
+- **[2025-04-20]** Task 4.2 Debugging: Identified and requested fixes for AgentKit (health endpoint, webhook serialization - Issue #1). Updated tests for AgentKit fixes and Ops-Core auth requirement on GET /state. Current tests fail due to Ops-Core 500 error.
