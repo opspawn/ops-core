@@ -98,9 +98,11 @@ def get_all_agent_registrations() -> List[AgentInfo]:
 def save_agent_state(agent_state: AgentState):
     """Saves an agent state update (appends to history)."""
     agent_id = agent_state.agentId
-    logger.debug(f"Saving state for agent {agent_id}: {agent_state.state}")
+    logger.debug(f"Storage: Saving state for agent {agent_id}: {agent_state.state}")
     try:
+        logger.debug(f"Storage: Attempting to acquire _agent_states_lock for save_agent_state for agent {agent_id}")
         with _agent_states_lock:
+            logger.debug(f"Storage: Acquired _agent_states_lock for save_agent_state for agent {agent_id}")
             if agent_id not in _agent_states:
                 _agent_states[agent_id] = []
             # Store as dict for simplicity in this in-memory version
@@ -108,32 +110,44 @@ def save_agent_state(agent_state: AgentState):
             # Optional: Limit history size if needed
             # MAX_HISTORY = 100
             # if len(_agent_states[agent_id]) > MAX_HISTORY:
-            #     logger.debug(f"Trimming state history for agent {agent_id}")
+            #     logger.debug(f"Storage: Trimming state history for agent {agent_id}")
             #     _agent_states[agent_id] = _agent_states[agent_id][-MAX_HISTORY:]
-            logger.info(f"State saved for agent {agent_id}")
+            logger.info(f"Storage: State saved for agent {agent_id}")
+            logger.debug(f"Storage: Releasing _agent_states_lock for save_agent_state for agent {agent_id}")
     except (TypeError, ValueError) as e: # Catch specific data errors (e.g., model_dump)
-        logger.error(f"Data error during agent state save for {agent_id}: {e}", exc_info=True)
+        logger.error(f"Storage: Data error during agent state save for {agent_id}: {e}", exc_info=True)
         raise exceptions.StorageError(f"Failed to save state for agent {agent_id} due to data issue", original_exception=e) from e
     except Exception as e: # Catch lock errors or other unexpected issues
-        logger.error(f"Unexpected error saving state for agent {agent_id}: {e}", exc_info=True)
+        logger.error(f"Storage: Unexpected error saving state for agent {agent_id}: {e}", exc_info=True)
         raise exceptions.StorageError(f"Failed to save state for agent {agent_id}", original_exception=e) from e
+    logger.debug(f"Storage: Finished save_agent_state for agent {agent_id}")
+
 
 def read_latest_agent_state(agent_id: str) -> Optional[AgentState]:
     """Retrieves the most recent state for an agent."""
-    logger.debug(f"Retrieving latest state for agent {agent_id}")
+    logger.debug(f"Storage: Retrieving latest state for agent {agent_id}")
+    logger.debug(f"Storage: Attempting to acquire _agent_states_lock for read_latest_agent_state for agent {agent_id}")
     with _agent_states_lock:
+        logger.debug(f"Storage: Acquired _agent_states_lock for read_latest_agent_state for agent {agent_id}")
         history = _agent_states.get(agent_id)
         if history:
             latest_state_dict = history[-1]
-            logger.debug(f"Found latest state dict for agent {agent_id}")
+            logger.debug(f"Storage: Found latest state dict for agent {agent_id}")
             try:
-                return AgentState(**latest_state_dict)
+                agent_state = AgentState(**latest_state_dict)
+                logger.debug(f"Storage: Successfully parsed state data for agent {agent_id}")
+                logger.debug(f"Storage: Releasing _agent_states_lock for read_latest_agent_state for agent {agent_id}")
+                return agent_state
             except Exception as e:
-                logger.error(f"Failed to parse stored state data for agent {agent_id}: {e}")
+                logger.error(f"Storage: Failed to parse stored state data for agent {agent_id}: {e}")
+                logger.debug(f"Storage: Releasing _agent_states_lock for read_latest_agent_state for agent {agent_id}")
                 return None
         else:
-            logger.warning(f"No state history found for agent {agent_id}")
+            logger.warning(f"Storage: No state history found for agent {agent_id}")
+            logger.debug(f"Storage: Releasing _agent_states_lock for read_latest_agent_state for agent {agent_id}")
             return None
+    # Lock is released automatically upon exiting the 'with' block
+    # logger.debug(f"Storage: Finished read_latest_agent_state for agent {agent_id}") # This line is unreachable
 
 def read_agent_state_history(agent_id: str) -> List[AgentState]:
     """Retrieves the full state history for an agent."""

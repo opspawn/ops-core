@@ -34,44 +34,47 @@ def register_agent(agent_id: str, details: AgentRegistrationDetails) -> AgentInf
         exceptions.RegistrationError: If storage fails during registration. # Corrected indentation (8 spaces)
     """ # Corrected indentation (4 spaces)
     agent_name = details.agentName # Corrected indentation (4 spaces)
-    logger.info(f"Attempting to register agent: {agent_name} with ID: {agent_id}") # Corrected indentation (4 spaces)
+    logger.info(f"Lifecycle: Attempting to register agent: {agent_name} with ID: {agent_id}")
 
-    # Validate agent_id format? (Optional, assume valid string for now) # Corrected indentation (4 spaces)
-    if not agent_id: # Corrected indentation (4 spaces)
-        raise ValueError("agent_id cannot be empty") # Corrected indentation (8 spaces)
+    # Validate agent_id format? (Optional, assume valid string for now)
+    if not agent_id:
+        raise ValueError("agent_id cannot be empty")
 
-    # Create the full AgentInfo object using provided ID and details # Corrected indentation (4 spaces)
-    try: # Corrected indentation (4 spaces)
-        agent_info = AgentInfo( # Corrected indentation (8 spaces)
+    # Create the full AgentInfo object using provided ID and details
+    try:
+        agent_info = AgentInfo(
             **details.model_dump(), # Spread the details (includes agentId)
             registrationTime=datetime.now(timezone.utc) # Set registration time to now
-        ) # Corrected indentation (8 spaces)
-    except Exception as e: # Catch potential Pydantic validation errors # Corrected indentation (4 spaces)
-        logger.error(f"Failed to create AgentInfo model for agent {agent_id}: {e}", exc_info=True) # Corrected indentation (8 spaces)
-        # Use a more specific exception if available, or re-raise validation error # Corrected indentation (8 spaces)
-        raise exceptions.RegistrationError(f"Invalid agent details provided for {agent_id}", original_exception=e) from e # Corrected indentation (8 spaces)
+        )
+        logger.debug(f"Lifecycle: Created AgentInfo model for agent {agent_id}")
+    except Exception as e: # Catch potential Pydantic validation errors
+        logger.error(f"Lifecycle: Failed to create AgentInfo model for agent {agent_id}: {e}", exc_info=True)
+        # Use a more specific exception if available, or re-raise validation error
+        raise exceptions.RegistrationError(f"Invalid agent details provided for {agent_id}", original_exception=e) from e
 
-    # Store agent registration data using the storage module # Corrected indentation (4 spaces)
-    try: # Corrected indentation (4 spaces)
-        storage.save_agent_registration(agent_info) # Corrected indentation (8 spaces)
-        logger.info(f"Agent '{agent_name}' registration data saved successfully with ID: {agent_id}") # Corrected indentation (8 spaces)
+    # Store agent registration data using the storage module
+    logger.debug(f"Lifecycle: Calling storage.save_agent_registration for agent {agent_id}")
+    try:
+        storage.save_agent_registration(agent_info)
+        logger.info(f"Lifecycle: Agent '{agent_name}' registration data saved successfully with ID: {agent_id}")
 
-        # Set initial state after successful registration storage # Corrected indentation (8 spaces)
-        try: # Corrected indentation (8 spaces)
-            set_state(agent_id=agent_id, new_state="UNKNOWN", details={"reason": "Initial registration"}) # Corrected indentation (12 spaces)
-            logger.info(f"Initial state 'UNKNOWN' set for agent {agent_id}") # Corrected indentation (12 spaces)
-        except Exception as state_e: # Corrected indentation (8 spaces)
-            # Log error setting initial state, but don't fail the registration itself? # Corrected indentation (12 spaces)
-            # Or should we attempt to rollback/delete the registration? # Corrected indentation (12 spaces)
-            # For now, log error and continue. Consider cleanup later. # Corrected indentation (12 spaces)
-            logger.error(f"Failed to set initial state for newly registered agent {agent_id}: {state_e}", exc_info=True) # Corrected indentation (12 spaces)
-            # Optionally raise a specific warning/error or just proceed # Corrected indentation (12 spaces)
+        # Set initial state after successful registration storage
+        logger.debug(f"Lifecycle: Calling set_state for initial UNKNOWN state for agent {agent_id}")
+        try:
+            set_state(agent_id=agent_id, new_state="UNKNOWN", details={"reason": "Initial registration"})
+            logger.info(f"Lifecycle: Initial state 'UNKNOWN' set for agent {agent_id}")
+        except Exception as state_e:
+            # Log error setting initial state, but don't fail the registration itself?
+            # Or should we attempt to rollback/delete the registration?
+            # For now, log error and continue. Consider cleanup later.
+            logger.error(f"Lifecycle: Failed to set initial state for newly registered agent {agent_id}: {state_e}", exc_info=True)
+            # Optionally raise a specific warning/error or just proceed
 
-    except exceptions.AgentAlreadyExistsError as e: # Catch specific error from storage # Corrected indentation (4 spaces)
-        logger.warning(f"Attempted to register agent {agent_id} which already exists.") # Corrected indentation (8 spaces)
-        raise e # Re-raise for the API layer to handle # Corrected indentation (8 spaces)
-    except Exception as e: # Corrected indentation (4 spaces)
-        logger.error(f"Failed to save registration for agent {agent_id}: {e}", exc_info=True) # Corrected indentation (8 spaces)
+    except exceptions.AgentAlreadyExistsError as e: # Catch specific error from storage
+        logger.warning(f"Lifecycle: Attempted to register agent {agent_id} which already exists.")
+        raise e # Re-raise for the API layer to handle
+    except Exception as e:
+        logger.error(f"Lifecycle: Failed to save registration for agent {agent_id}: {e}", exc_info=True)
         raise exceptions.RegistrationError(f"Failed to save registration for agent {agent_id}", original_exception=e) from e
 
     return agent_info
@@ -93,11 +96,13 @@ def set_state(agent_id: str, new_state: str, details: Optional[Dict[str, Any]] =
         exceptions.InvalidStateError: If the new_state data is invalid (e.g., Pydantic validation).
         exceptions.StorageError: If saving the state to storage fails.
     """
-    logger.info(f"Setting state for agent {agent_id} to '{new_state}'")
+    logger.info(f"Lifecycle: Setting state for agent {agent_id} to '{new_state}'")
     # Validate agent_id exists using storage module (read operation)
+    logger.debug(f"Lifecycle: Checking if agent {agent_id} exists before setting state.")
     if not storage.read_agent_registration(agent_id):
-        logger.error(f"Attempted to set state for unknown agent ID: {agent_id}")
+        logger.error(f"Lifecycle: Attempted to set state for unknown agent ID: {agent_id}")
         raise exceptions.AgentNotFoundError(agent_id)
+    logger.debug(f"Lifecycle: Agent {agent_id} found.")
 
     # TODO: Validate new_state against allowed states (defined in models?)
 
@@ -109,7 +114,7 @@ def set_state(agent_id: str, new_state: str, details: Optional[Dict[str, Any]] =
             # Ensure timezone awareness if needed, Pydantic might handle this better
             state_timestamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
         except ValueError:
-            logger.warning(f"Invalid timestamp format received for agent {agent_id}: '{timestamp}'. Using current time.")
+            logger.warning(f"Lifecycle: Invalid timestamp format received for agent {agent_id}: '{timestamp}'. Using current time.")
             # Keep state_timestamp as datetime.utcnow()
 
     # Create state update object using the Pydantic model
@@ -120,16 +125,18 @@ def set_state(agent_id: str, new_state: str, details: Optional[Dict[str, Any]] =
             details=details,
             timestamp=state_timestamp
         )
+        logger.debug(f"Lifecycle: Created AgentState model for agent {agent_id}")
     except Exception as e: # Catch potential Pydantic validation errors
-        logger.error(f"Failed to create AgentState model for agent {agent_id}: {e}", exc_info=True)
+        logger.error(f"Lifecycle: Failed to create AgentState model for agent {agent_id}: {e}", exc_info=True)
         raise exceptions.InvalidStateError(f"Invalid state data provided: {e}") from e
 
     # Store the state update using the storage module
+    logger.debug(f"Lifecycle: Calling storage.save_agent_state for agent {agent_id}")
     try:
         storage.save_agent_state(agent_state)
-        logger.info(f"State for agent {agent_id} updated to '{new_state}'")
+        logger.info(f"Lifecycle: State for agent {agent_id} updated to '{new_state}'")
     except Exception as e:
-        logger.error(f"Failed to save state for agent {agent_id} to storage: {e}", exc_info=True)
+        logger.error(f"Lifecycle: Failed to save state for agent {agent_id} to storage: {e}", exc_info=True)
         raise exceptions.StorageError(f"Failed to save state for agent {agent_id}", original_exception=e) from e
 
 
@@ -144,14 +151,16 @@ def get_state(agent_id: str) -> Optional[AgentState]:
         An AgentState object representing the agent's current state,
         or None if the agent or state is not found.
     """
-    logger.debug(f"Fetching state for agent {agent_id}")
+    logger.debug(f"Lifecycle: Fetching state for agent {agent_id}")
     # Retrieve state from storage module
+    logger.debug(f"Lifecycle: Calling storage.read_latest_agent_state for agent {agent_id}")
     agent_state = storage.read_latest_agent_state(agent_id)
+    logger.debug(f"Lifecycle: storage.read_latest_agent_state returned: {agent_state}")
     if agent_state:
-        logger.debug(f"Found state for agent {agent_id}: {agent_state.state}")
+        logger.debug(f"Lifecycle: Found state for agent {agent_id}: {agent_state.state}")
         return agent_state
     else:
-        logger.warning(f"No state found for agent {agent_id}")
+        logger.warning(f"Lifecycle: No state found for agent {agent_id}")
         return None
 
 # --- Session Management ---
@@ -172,12 +181,14 @@ def start_session(agent_id: str, workflow_id: str) -> WorkflowSession:
         exceptions.OpsCoreError: If the session object cannot be initialized.
         exceptions.StorageError: If saving the session to storage fails.
     """
-    logger.info(f"Attempting to start new session for agent {agent_id}, workflow {workflow_id}")
+    logger.info(f"Lifecycle: Attempting to start new session for agent {agent_id}, workflow {workflow_id}")
 
     # Validate agent_id exists
+    logger.debug(f"Lifecycle: Checking if agent {agent_id} exists before starting session.")
     if not storage.read_agent_registration(agent_id):
-        logger.error(f"Cannot start session: Agent {agent_id} not found.")
+        logger.error(f"Lifecycle: Cannot start session: Agent {agent_id} not found.")
         raise exceptions.AgentNotFoundError(agent_id)
+    logger.debug(f"Lifecycle: Agent {agent_id} found.")
 
     # Create session object (generates its own ID and timestamps)
     try:
@@ -186,19 +197,21 @@ def start_session(agent_id: str, workflow_id: str) -> WorkflowSession:
             workflowId=workflow_id,
             # sessionId, startTime, last_updated_time, status are handled by model defaults
         )
+        logger.debug(f"Lifecycle: Created WorkflowSession model for agent {agent_id}, workflow {workflow_id}")
     except Exception as e: # Should not happen with these args, but good practice
-        logger.error(f"Failed to create WorkflowSession model: {e}", exc_info=True)
+        logger.error(f"Lifecycle: Failed to create WorkflowSession model: {e}", exc_info=True)
         raise exceptions.OpsCoreError(f"Failed to initialize session object: {e}") from e
 
     # Store session data using storage module
+    logger.debug(f"Lifecycle: Calling storage.create_session for session {session.sessionId}")
     try:
         storage.create_session(session)
-        logger.info(f"Session {session.sessionId} started successfully for agent {agent_id}, workflow {workflow_id}")
+        logger.info(f"Lifecycle: Session {session.sessionId} started successfully for agent {agent_id}, workflow {workflow_id}")
     except ValueError as e: # Catch potential duplicate ID error from storage
-        logger.error(f"Failed to create session in storage: {e}", exc_info=True)
+        logger.error(f"Lifecycle: Failed to create session in storage: {e}", exc_info=True)
         raise exceptions.StorageError(f"Failed to create session: {e}", original_exception=e) from e
     except Exception as e:
-        logger.error(f"Failed to save session {session.sessionId} to storage: {e}", exc_info=True)
+        logger.error(f"Lifecycle: Failed to save session {session.sessionId} to storage: {e}", exc_info=True)
         raise exceptions.StorageError(f"Failed to save session {session.sessionId}", original_exception=e) from e
 
     return session
@@ -219,13 +232,13 @@ def update_session(session_id: str, update_payload: SessionUpdate) -> WorkflowSe
         exceptions.InvalidStateError: If the update data is invalid.
         exceptions.StorageError: If updating the session in storage fails.
     """
-    logger.info(f"Attempting to update session {session_id}")
+    logger.info(f"Lifecycle: Attempting to update session {session_id}")
 
     # Prepare update dictionary, only including fields explicitly set in the payload
     update_dict = update_payload.model_dump(exclude_unset=True)
 
     if not update_dict:
-        logger.warning(f"Update called for session {session_id} with no changes provided.")
+        logger.warning(f"Lifecycle: Update called for session {session_id} with no changes provided.")
         # Optionally return the existing session without hitting storage
         existing_session = storage.read_session(session_id)
         if not existing_session:
@@ -241,20 +254,21 @@ def update_session(session_id: str, update_payload: SessionUpdate) -> WorkflowSe
         if 'endTime' not in update_dict: # Only set if not explicitly provided
             update_dict['endTime'] = datetime.now(timezone.utc) # Use timezone-aware
 
-    logger.debug(f"Applying updates to session {session_id}: {update_dict}")
+    logger.debug(f"Lifecycle: Applying updates to session {session_id}: {update_dict}")
 
+    logger.debug(f"Lifecycle: Calling storage.update_session_data for session {session_id}")
     try:
         updated_session = storage.update_session_data(session_id, update_dict)
-        logger.info(f"Session {session_id} updated successfully.")
+        logger.info(f"Lifecycle: Session {session_id} updated successfully.")
         return updated_session
     except exceptions.SessionNotFoundError as e: # Catch specific not found error from storage
-        logger.error(f"Update failed: Session {session_id} not found.")
+        logger.error(f"Lifecycle: Update failed: Session {session_id} not found.")
         raise e # Re-raise the specific SessionNotFoundError
     except exceptions.InvalidStateError as e: # Catch specific invalid data error from storage
-        logger.error(f"Update failed for session {session_id} due to invalid data: {e}", exc_info=True)
+        logger.error(f"Lifecycle: Update failed for session {session_id} due to invalid data: {e}", exc_info=True)
         raise e # Re-raise the specific InvalidStateError
     except Exception as e: # Catch other potential storage or unexpected errors
-        logger.error(f"Failed to update session {session_id} in storage: {e}", exc_info=True)
+        logger.error(f"Lifecycle: Failed to update session {session_id} in storage: {e}", exc_info=True)
         raise exceptions.StorageError(f"Failed to update session {session_id}", original_exception=e) from e
 
 
@@ -268,10 +282,12 @@ def get_session(session_id: str) -> Optional[WorkflowSession]:
     Returns:
         A WorkflowSession object representing the session data, or None if not found.
     """
-    logger.debug(f"Fetching session details for {session_id}")
+    logger.debug(f"Lifecycle: Fetching session details for {session_id}")
+    logger.debug(f"Lifecycle: Calling storage.read_session for session {session_id}")
     session = storage.read_session(session_id)
+    logger.debug(f"Lifecycle: storage.read_session returned: {session}")
     if session:
-        logger.debug(f"Found session {session_id}")
+        logger.debug(f"Lifecycle: Found session {session_id}")
     else:
-        logger.warning(f"No session found for ID: {session_id}")
+        logger.warning(f"Lifecycle: No session found for ID: {session_id}")
     return session

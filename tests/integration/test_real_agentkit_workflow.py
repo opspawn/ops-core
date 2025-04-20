@@ -173,7 +173,7 @@ async def test_end_to_end_workflow(opscore_client: httpx.AsyncClient, agentkit_c
 
     # Add a small delay to allow Ops-Core to process the registration webhook
     print("Waiting 5 seconds for Ops-Core to process registration webhook...")
-    await asyncio.sleep(5)
+    await asyncio.sleep(15)
     print("Continuing test...")
 
     # 3. Verify Agent Registration in Ops-Core (via webhook)
