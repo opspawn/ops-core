@@ -1,0 +1,26 @@
+{
+  "id": "sample_workflow_id",
+  "name": "Sample Load Test Workflow",
+  "description": "A simple workflow for performance testing.",
+  "version": "1.0",
+  "tasks": [
+    {
+      "taskId": "step_1",
+      "name": "First Step",
+      "agentCapability": "test_capability",
+      "parameters": {
+        "message": "This is the first step."
+      },
+      "nextTaskId": "step_2"
+    },
+    {
+      "taskId": "step_2",
+      "name": "Second Step",
+      "agentCapability": "another_capability",
+      "parameters": {
+        "value": 123
+      },
+      "nextTaskId": null
+    }
+  ]
+}

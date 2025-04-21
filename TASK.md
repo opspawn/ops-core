@@ -72,8 +72,7 @@ This TASK.md document provides a detailed, step-by-step checklist for developing
      - [X] Test state transitions and session tracking.
     - Verify workflow sequencing and error recovery functionalities.
 - [X] **Task 4.2:** Develop integration tests simulating complete workflows (e.g., agent registration → state update → workflow execution). (Completed: Debugged and fixed integration test failures related to API key handling, simulated agent state reporting payload, and test logic race conditions. Test `test_real_agentkit_workflow.py` now passes. - 2025-04-20)
-- [ ] **Task 4.3:** Set up GitHub Actions to automatically run tests, enforce linting, and maintain code style.
-- [ ] **Task 4.4:** Perform performance and load testing on API endpoints to gauge response times.
+- [X] **Task 4.4:** Perform performance and load testing on API endpoints to gauge response times. (Minimal load test Scenario 0 completed successfully - 2025-04-21)
 - [ ] **Task 4.5:** Conduct User Acceptance Testing (UAT) with internal scenarios and sample use cases.
 
 ---
