@@ -7,6 +7,8 @@ import sys
 import os
 import logging # Import the logging module
 import redis.asyncio as redis # Import redis async client
+from typing import AsyncGenerator # Import AsyncGenerator
+import httpx # Import httpx module
 
 # Configure basic logging for fixtures
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -191,6 +193,23 @@ async def clear_redis_before_each_test(request, redis_client):
     logger.info("Clearing Redis database before test...")
     try:
         await redis_client.flushdb()
+    except redis.RedisError as e:
+        logger.error(f"Failed to clear Redis database: {e}", exc_info=True)
+        pytest.fail(f"Could not clear Redis database: {e}")
+
+    yield # Test runs here
+    Fixture to clear the Redis database before each test function.
+    This fixture is autoused for async tests.
+    """
+    # Only clear Redis if the test is marked to use Redis storage
+    # We can use a marker or check environment variables, but for now,
+    # let's assume this fixture is applied only where needed (e.g., integration tests).
+    # A simpler approach for now is to just clear if the redis_client fixture is requested.
+    # Pytest's fixture resolution handles this dependency.
+
+    logger.info("Clearing Redis database before test...")
+    try:
+        await redis_client.flushdb()
         logger.info("Redis database cleared.")
     except redis.RedisError as e:
         logger.error(f"Failed to clear Redis database: {e}", exc_info=True)
@@ -214,3 +233,21 @@ async def clear_redis_before_each_test(request, redis_client):
 # from pydantic import HttpUrl # Already imported
 # import os # Already imported
 # import redis.asyncio as redis # Need to import redis.asyncio here
+
+@pytest_asyncio.fixture(scope="function") # Change scope to function
+async def opscore_client() -> AsyncGenerator[httpx.AsyncClient, None]:
+    """HTTP client for interacting with the Ops-Core service."""
+    # Get API key from environment variable set by docker-compose
+    opscore_api_key = os.environ.get("OPSCORE_API_KEY", "default-test-key") # Use a default for safety
+    print(f"opscore_client fixture: Using API Key '{opscore_api_key}' from environment variable.") # Added print statement for verification
+    # Use Authorization: Bearer <key> format as required by Ops-Core API
+    headers = {"Authorization": f"Bearer {opscore_api_key}"}
+    async with httpx.AsyncClient(base_url=OPSCORE_BASE_URL, timeout=30.0, headers=headers) as client:
+        yield client
+
+@pytest_asyncio.fixture(scope="function") # Change scope to function
+async def agentkit_client() -> httpx.AsyncClient:
+    """HTTP client for interacting with the AgentKit service."""
+    client = httpx.AsyncClient(base_url=AGENTKIT_BASE_URL, timeout=30.0)
+    yield client
+    await client.aclose() # Close the client after the function test is done

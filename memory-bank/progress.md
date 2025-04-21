@@ -31,7 +31,7 @@
     - [X] Task 3.3: Implement middleware for structured logging and standardized error handling across endpoints. (Completed: Middleware implemented, all 31 related test failures resolved - 2025-04-19)
     - **Phase 4 Tasks:**
         - [X] Task 4.1: Write unit tests for each subsystem using pytest. (Initial implementation complete; lifecycle coverage 100%, API coverage 89%).
-        - [P] Task 4.2: Develop integration tests simulating complete workflows. (Status: Implemented Redis storage backend and refactored Ops-Core to use async storage. Test now passes initial `UNKNOWN` state check but fails waiting for subsequent `idle` state update. Further debugging needed. - 2025-04-20).
+        - [P] Task 4.2: Develop integration tests simulating complete workflows. (Status: Implemented Redis storage backend and refactored for async. Debugged test environment issues (venv activation, missing packages). Test now fails with `401 Unauthorized` when polling Ops-Core API for agent state, indicating an issue with API key authentication from the test client fixture (`tests/conftest.py:opscore_client`). Attempts to fix the fixture were interrupted. - 2025-04-20)
   - [ ] Task 4.3: Set up GitHub Actions for CI/CD (testing, linting).
     - [ ] Task 4.4: Perform performance and load testing on API endpoints.
     - [ ] Task 4.5: Conduct User Acceptance Testing (UAT).
@@ -40,10 +40,10 @@
 
 ## 3. Current Status Overview
 - **Overall:** Core functionalities for lifecycle management and workflow orchestration are implemented with agent state checking and comprehensive custom exception handling. API endpoints for interaction are available, now with centralized middleware for logging and error handling. Webhook mechanism for AgentKit integration implemented. A basic Python SDK (`opscore_sdk/`) and a CLI (`opscore_cli/`) are available. Unit tests and mock integration tests passing. **Real integration tests (Task 4.2) are blocked.** Ops-Core storage layer refactored to support Redis (for integration tests) and async operations.
-- **Blockers/Dependencies:** Task 4.2 is blocked because the integration test fails waiting for the `idle` state update to appear in Redis after the initial `UNKNOWN` state is successfully verified.
+- **Blockers/Dependencies:** Task 4.2 is blocked because the integration test fails with a `401 Unauthorized` error when polling the Ops-Core API, indicating an API key authentication issue in the test client fixture.
 
 ## 4. Known Issues
-- **Task 4.2 Blocker:** Integration test `test_real_agentkit_workflow.py` fails waiting for `idle` state after successful `UNKNOWN` state verification using Redis storage. The initial `idle` state update sent by the simulated agent appears to fail or not be persisted correctly.
+- **Task 4.2 Blocker:** Integration test `test_real_agentkit_workflow.py` fails with `401 Unauthorized` when polling the Ops-Core API (`/v1/opscore/agent/{agentId}/state`). The test client fixture (`tests/conftest.py:opscore_client`) needs to be corrected to send the API key in the `Authorization: Bearer <key>` format. Previous attempts to fix this were interrupted.
 - **`httpx` Deprecation Warnings:** 6 warnings in `tests/test_middleware.py` related to `TestClient` instantiation (Task B7). Fixed 1 warning in `tests/conftest.py` related to `client.close()`.
 - Test coverage for `logging_config.py`, `models.py`, `agentkit_client.py`, and `workflow.py` needs review/improvement.
 - Task queue (`workflow._task_queue`) is still in-memory.
@@ -84,3 +84,4 @@
 - **[2025-04-20]** Task 4.2 Debugging (Agent ID Mismatch): Identified that the integration test was failing because it was polling for a stale/incorrect hardcoded agent ID, while AgentKit was registering the simulated agent with a different, dynamically generated ID. Reverted the hardcoded ID in the test.
 - **[2025-04-20]** Task 4.2 Debugging (Test Fixture Usage): Attempted to modify the test to discover the dynamically generated agent ID from AgentKit's `/v1/agents` endpoint, but encountered an `AttributeError` due to incorrect usage of the `agentkit_client` pytest async fixture. This needs to be fixed.
 + **[2025-04-20]** Task 4.2 Debugging (Redis Implementation): Implemented Redis storage backend (`RedisStorage` class, Docker config, dependencies). Refactored `storage.py`, `lifecycle.py`, `api.py`, `conftest.py`, `test_real_agentkit_workflow.py`, `simulated_agent/main.py` to support async storage and fix related errors (NameError, async/sync issues, timing). Test now passes initial `UNKNOWN` state check but fails waiting for `idle` state.
++ **[2025-04-20]** Task 4.2 Debugging (API Polling & Auth): Switched test polling from direct storage access to API polling. Debugged test environment issues (venv activation, missing `redis` package, missing `httpx` import). Identified API key authentication failure (401 Unauthorized) due to incorrect header format in `opscore_client` fixture. Attempts to fix the fixture were interrupted.
