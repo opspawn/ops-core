@@ -71,7 +71,7 @@ This TASK.md document provides a detailed, step-by-step checklist for developing
      - [X] Validate agent registration with both valid and invalid data.
      - [X] Test state transitions and session tracking.
     - Verify workflow sequencing and error recovery functionalities.
-- [P] **Task 4.2:** Develop integration tests simulating complete workflows (e.g., agent registration → state update → workflow execution). (Status: Implemented Redis storage backend and refactored for async. Debugged test environment issues (venv activation, missing packages). Test now fails with `401 Unauthorized` when polling Ops-Core API for agent state, indicating an issue with API key authentication from the test client fixture (`tests/conftest.py:opscore_client`). Attempts to fix the fixture were interrupted. - 2025-04-20)
+- [P] **Task 4.2:** Develop integration tests simulating complete workflows (e.g., agent registration → state update → workflow execution). (Status: Implemented Redis storage backend and refactored for async. Debugged test environment issues (venv activation, missing packages). Resolved `SyntaxError` and `ValueError` in `tests/conftest.py`. Resolved `401 Unauthorized` error by temporarily hardcoding API key in `tests/conftest.py`. Test now fails with `TimeoutError` waiting for the agent state to become 'UNKNOWN' via the API. - 2025-04-20)
 - [ ] **Task 4.3:** Set up GitHub Actions to automatically run tests, enforce linting, and maintain code style.
 - [ ] **Task 4.4:** Perform performance and load testing on API endpoints to gauge response times.
 - [ ] **Task 4.5:** Conduct User Acceptance Testing (UAT) with internal scenarios and sample use cases.

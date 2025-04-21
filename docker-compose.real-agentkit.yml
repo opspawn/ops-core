@@ -14,7 +14,6 @@ services:
       - .env # Load environment variables from .env file (create this file locally)
     # Environment variables can also be defined directly:
     environment:
-      - OPSCORE_API_KEY=test-api-key # API Key Ops-Core expects from agents/AgentKit SDK
       # Point to the real agentkit service (internal port is 8000)
       - AGENTKIT_API_URL=http://agentkit_real_service:8000/v1 # Added /v1 based on AgentKit docs
       # --- Redis Configuration for Integration Tests ---

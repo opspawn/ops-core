@@ -198,24 +198,7 @@ async def clear_redis_before_each_test(request, redis_client):
         pytest.fail(f"Could not clear Redis database: {e}")
 
     yield # Test runs here
-    Fixture to clear the Redis database before each test function.
-    This fixture is autoused for async tests.
-    """
-    # Only clear Redis if the test is marked to use Redis storage
-    # We can use a marker or check environment variables, but for now,
-    # let's assume this fixture is applied only where needed (e.g., integration tests).
-    # A simpler approach for now is to just clear if the redis_client fixture is requested.
-    # Pytest's fixture resolution handles this dependency.
 
-    logger.info("Clearing Redis database before test...")
-    try:
-        await redis_client.flushdb()
-        logger.info("Redis database cleared.")
-    except redis.RedisError as e:
-        logger.error(f"Failed to clear Redis database: {e}", exc_info=True)
-        pytest.fail(f"Could not clear Redis database: {e}")
-
-    yield # Test runs here
     logger.info("Redis database cleanup complete after test.")
 
 # Note: The original clear_storage_before_each_test fixture remains but is not autoused.
@@ -237,17 +220,17 @@ async def clear_redis_before_each_test(request, redis_client):
 @pytest_asyncio.fixture(scope="function") # Change scope to function
 async def opscore_client() -> AsyncGenerator[httpx.AsyncClient, None]:
     """HTTP client for interacting with the Ops-Core service."""
-    # Get API key from environment variable set by docker-compose
-    opscore_api_key = os.environ.get("OPSCORE_API_KEY", "default-test-key") # Use a default for safety
-    print(f"opscore_client fixture: Using API Key '{opscore_api_key}' from environment variable.") # Added print statement for verification
+    """HTTP client for interacting with the Ops-Core service."""
+    # Temporarily hardcode API key to unblock debugging
+    opscore_api_key = "test-api-key"
+    print(f"opscore_client fixture: Using hardcoded API Key '{opscore_api_key}'.") # Added print statement for verification
     # Use Authorization: Bearer <key> format as required by Ops-Core API
     headers = {"Authorization": f"Bearer {opscore_api_key}"}
     async with httpx.AsyncClient(base_url=OPSCORE_BASE_URL, timeout=30.0, headers=headers) as client:
         yield client
 
 @pytest_asyncio.fixture(scope="function") # Change scope to function
-async def agentkit_client() -> httpx.AsyncClient:
+async def agentkit_client() -> AsyncGenerator[httpx.AsyncClient, None]:
     """HTTP client for interacting with the AgentKit service."""
-    client = httpx.AsyncClient(base_url=AGENTKIT_BASE_URL, timeout=30.0)
-    yield client
-    await client.aclose() # Close the client after the function test is done
+    async with httpx.AsyncClient(base_url=AGENTKIT_BASE_URL, timeout=30.0) as client:
+        yield client
