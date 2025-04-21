@@ -101,7 +101,7 @@ async def agent_notification(payload: AgentNotificationPayload):
 
         logger.info(f"API: Calling lifecycle.register_agent for agent {agent_id}")
         try:
-            lifecycle.register_agent(
+            await lifecycle.register_agent(
                 agent_id=agent_id,
                 details=payload.agent_details
             )
@@ -154,7 +154,7 @@ async def update_agent_state(
     # Removed broad try/except block; middleware handles OpsCoreError and Exception
     # Specific OpsCoreErrors (AgentNotFound, InvalidState, StorageError) will be caught by middleware
     logger.debug(f"API: Calling lifecycle.set_state for agent {agent_id}")
-    lifecycle.set_state(
+    await lifecycle.set_state(
         agent_id=agent_id,
         new_state=state_update.state,
         details=state_update.details,
@@ -180,7 +180,7 @@ async def get_agent_state(agent_id: str):
    # Removed broad try/except block; middleware handles OpsCoreError and Exception
    # Specific OpsCoreErrors (AgentNotFound, StorageError) will be caught by middleware
    logger.debug(f"API: Calling lifecycle.get_state for agent {agent_id}")
-   agent_state = lifecycle.get_state(agent_id=agent_id)
+   agent_state = await lifecycle.get_state(agent_id=agent_id)
    logger.debug(f"API: lifecycle.get_state returned: {agent_state}")
    # The AgentNotFoundError should be raised by get_state if not found,
    # and caught by the middleware. This check might be redundant if get_state guarantees raising.
@@ -270,7 +270,7 @@ async def trigger_workflow(
     # Agent existence checked here. AgentNotFoundError, StorageError, other OpsCoreError
     # caught by middleware.
     logger.debug(f"API: Calling lifecycle.start_session for agent {agent_id}, workflow {workflow_id}")
-    session = lifecycle.start_session(agent_id=agent_id, workflow_id=workflow_id)
+    session = await lifecycle.start_session(agent_id=agent_id, workflow_id=workflow_id)
     logger.info(f"API: Started session {session.sessionId} for workflow {workflow_id} on agent {agent_id}")
 
     # 3. Enqueue the First Task
@@ -278,7 +278,7 @@ async def trigger_workflow(
         if not workflow_def.tasks:
             logger.warning(f"API: Workflow definition {workflow_id} has no tasks.")
             # Update session status?
-            lifecycle.update_session(session.sessionId, models.SessionUpdate(status="completed", result={"message": "Workflow has no tasks"}))
+            await lifecycle.update_session(session.sessionId, models.SessionUpdate(status="completed", result={"message": "Workflow has no tasks"}))
             return WorkflowTriggerResponse(sessionId=session.sessionId, workflowId=workflow_id, message="Workflow triggered but has no tasks.")
 
         first_task_def = workflow_def.tasks[0]
@@ -305,7 +305,7 @@ async def trigger_workflow(
         logger.error(error_msg, exc_info=True)
         # Attempt to mark session as failed since enqueue failed
         try:
-            lifecycle.update_session(session.sessionId, models.SessionUpdate(status="failed", error=str(e)))
+            await lifecycle.update_session(session.sessionId, models.SessionUpdate(status="failed", error=str(e)))
         except Exception as update_err:
              logger.error(f"API: Additionally failed to update session {session.sessionId} status after enqueue error: {update_err}")
         # Re-raise the original exception to be handled by middleware

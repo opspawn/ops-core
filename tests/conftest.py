@@ -5,6 +5,12 @@ Pytest configuration and shared fixtures for Ops-Core tests.
 import pytest
 import sys
 import os
+import logging # Import the logging module
+import redis.asyncio as redis # Import redis async client
+
+# Configure basic logging for fixtures
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__) # Get a logger instance for this module
 
 # Ensure the opscore package is discoverable
 # Add the project root directory to the Python path
@@ -144,3 +150,67 @@ async def test_client(clear_storage_before_each_test) -> AsyncClient: # Ensure s
     # Use 'async with' for proper client setup and teardown
     async with AsyncClient(app=fastapi_app, base_url="http://testserver") as client:
         yield client # Provide the client to the test function
+
+# --- Redis Fixtures for Integration Tests ---
+
+@pytest_asyncio.fixture(scope="function")
+async def redis_client():
+    """
+    Provides an asynchronous Redis client connected to the test Redis instance.
+    Connection details are read from environment variables (matching docker-compose).
+    """
+    redis_host = os.environ.get("REDIS_HOST", "localhost")
+    redis_port = int(os.environ.get("REDIS_PORT", 6379))
+    logger.info(f"Connecting Redis client to {redis_host}:{redis_port}")
+    client = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
+    try:
+        # Ping to ensure connection is working
+        await client.ping()
+        logger.info("Redis client connected successfully.")
+        yield client
+    except redis.RedisError as e:
+        logger.error(f"Failed to connect to Redis at {redis_host}:{redis_port}: {e}", exc_info=True)
+        pytest.fail(f"Could not connect to Redis at {redis_host}:{redis_port}: {e}")
+    finally:
+        # Ensure the client is closed after the test
+        await client.aclose() # Use aclose() for async client
+        logger.info("Redis client connection closed.")
+
+@pytest_asyncio.fixture(scope="function", autouse=True)
+async def clear_redis_before_each_test(request, redis_client):
+    """
+    Fixture to clear the Redis database before each test function.
+    This fixture is autoused for async tests.
+    """
+    # Only clear Redis if the test is marked to use Redis storage
+    # We can use a marker or check environment variables, but for now,
+    # let's assume this fixture is applied only where needed (e.g., integration tests).
+    # A simpler approach for now is to just clear if the redis_client fixture is requested.
+    # Pytest's fixture resolution handles this dependency.
+
+    logger.info("Clearing Redis database before test...")
+    try:
+        await redis_client.flushdb()
+        logger.info("Redis database cleared.")
+    except redis.RedisError as e:
+        logger.error(f"Failed to clear Redis database: {e}", exc_info=True)
+        pytest.fail(f"Could not clear Redis database: {e}")
+
+    yield # Test runs here
+    logger.info("Redis database cleanup complete after test.")
+
+# Note: The original clear_storage_before_each_test fixture remains but is not autoused.
+# It should be explicitly applied to unit tests that rely on in-memory storage.
+# Integration tests using Redis will implicitly use clear_redis_before_each_test
+# via the dependency on redis_client (if the test function requests redis_client).
+# However, for clarity and to ensure cleanup even if redis_client isn't directly requested
+# by the test function, we can make clear_redis_before_each_test autouse=True
+# and potentially add a marker check if needed later for more fine-grained control.
+# For now, autouse=True on clear_redis_before_each_test is simpler for the integration test suite.
+
+# Need to import redis.asyncio
+# from opscore import storage, workflow, models # Already imported
+# from datetime import datetime # Already imported
+# from pydantic import HttpUrl # Already imported
+# import os # Already imported
+# import redis.asyncio as redis # Need to import redis.asyncio here

@@ -6,6 +6,7 @@ import os
 import subprocess
 import time
 from typing import AsyncGenerator, Dict, Any
+from opscore.storage import get_storage # Import get_storage
 
 # Define base URLs based on docker-compose service names/ports
 # When running tests from the HOST, use localhost and mapped ports.
@@ -31,45 +32,35 @@ async def wait_for_service(url: str, service_name: str, timeout: int = 60):
         await asyncio.sleep(2)
     raise TimeoutError(f"{service_name} did not become healthy within {timeout} seconds.")
 
-async def poll_for_agent_state(base_url: str, agent_id: str, expected_state: str, timeout: int = 30) -> Dict[str, Any]:
-    """Polls Ops-Core state endpoint for a specific agent state."""
-    # print(f"DEBUG: Type of client received in poll_for_agent_state: {type(client)}") # DEBUG line removed
+async def poll_storage_for_agent_state(agent_id: str, expected_state: str, timeout: int = 30):
+    """Polls the storage backend directly for a specific agent state."""
     start_time = time.time()
     last_state = None
-    # Use the same API key defined in docker-compose for Ops-Core
-    api_key = "test-api-key"
-    headers = {"Authorization": f"Bearer {api_key}"}
+    storage_instance = get_storage() # Get the active storage instance
 
-    async with httpx.AsyncClient(base_url=base_url, timeout=10.0) as client: # Create client inside
-        while time.time() - start_time < timeout:
-            try:
-                # Add the Authorization header to the request
-                response = await client.get(f"/v1/opscore/agent/{agent_id}/state", headers=headers)
-                if response.status_code == 200:
-                    data = response.json()
-                    # Extract state directly from the top-level response data
-                    last_state = data.get("state")
-                    # Check for expected state *only* if response was successful
-                    if last_state == expected_state:
-                        print(f"Agent {agent_id} reached expected state '{expected_state}'.")
-                        return data # Return the full state info
-                elif response.status_code == 404:
-                    # Agent might not be registered yet, print info and continue polling
-                    print(f"Polling state for {agent_id}: Agent not found (404).")
-                    last_state = 'not_found' # Update last_state for timeout message
-                    pass
-                else:
-                    # Raise unexpected HTTP errors
-                    print(f"Polling state for {agent_id}: Received unexpected status {response.status_code}")
-                    response.raise_for_status()
-            except httpx.RequestError as e:
-                 print(f"Polling state for {agent_id}: Network error {e}")
-            except Exception as e:
-                print(f"Polling state for {agent_id}: Unexpected error {e}")
+    print(f"Polling storage for agent {agent_id} to reach state '{expected_state}'...")
 
-            await asyncio.sleep(1) # Wait before next poll attempt
+    while time.time() - start_time < timeout:
+        try:
+            # Use the async method of the storage instance
+            agent_state = await storage_instance.read_latest_agent_state(agent_id)
+            if agent_state:
+                last_state = agent_state.state
+                print(f"Storage poll for {agent_id}: Found state '{last_state}'")
+                if last_state == expected_state:
+                    print(f"Storage poll for {agent_id}: Reached expected state '{expected_state}'.")
+                    return agent_state # Return the full state info
+            else:
+                print(f"Storage poll for {agent_id}: Agent state not found.")
+                last_state = 'not_found' # Update last_state for timeout message
 
-    raise TimeoutError(f"Agent {agent_id} did not reach state '{expected_state}' within {timeout} seconds. Last state: {last_state}")
+        except Exception as e:
+            print(f"Storage poll for {agent_id}: Unexpected error {e}")
+            # Continue polling on error, but log it
+
+        await asyncio.sleep(1) # Wait before next poll attempt
+
+    raise TimeoutError(f"Agent {agent_id} did not reach state '{expected_state}' in storage within {timeout} seconds. Last state: {last_state}")
 
 
 # --- Pytest Fixtures ---
@@ -177,21 +168,22 @@ async def test_end_to_end_workflow(opscore_client: httpx.AsyncClient, agentkit_c
     print("Continuing test...")
 
     # 3. Verify Agent Registration in Ops-Core (via webhook)
-    # Step 3a: Poll for the initial "UNKNOWN" state set by webhook processing
-    print(f"Verifying initial registration (state UNKNOWN) of agent {discovered_agent_id} in Ops-Core...")
+    # 3. Verify Agent Registration in Ops-Core (via webhook) by polling storage directly
+    # Step 3a: Poll storage for the initial "UNKNOWN" state set by webhook processing
+    print(f"Verifying initial registration (state UNKNOWN) of agent {discovered_agent_id} in storage...")
     try:
-        await poll_for_agent_state(OPSCORE_BASE_URL, discovered_agent_id, "UNKNOWN", timeout=30) # Check for UNKNOWN first
-        print(f"Agent {discovered_agent_id} successfully registered in Ops-Core (state UNKNOWN found).")
+        await poll_storage_for_agent_state(discovered_agent_id, "UNKNOWN", timeout=30) # Poll storage directly
+        print(f"Agent {discovered_agent_id} successfully registered in storage (state UNKNOWN found).")
     except TimeoutError:
-        pytest.fail(f"Agent {discovered_agent_id} did not reach state UNKNOWN in Ops-Core after startup webhook.")
+        pytest.fail(f"Agent {discovered_agent_id} did not reach state UNKNOWN in storage after startup webhook.")
 
-    # Step 3b: Now wait for the agent to report itself as "idle"
-    print(f"Waiting for agent {discovered_agent_id} to report state IDLE...")
+    # Step 3b: Now wait for the agent to report itself as "idle" by polling storage directly
+    print(f"Waiting for agent {discovered_agent_id} to report state IDLE in storage...")
     try:
-        await poll_for_agent_state(OPSCORE_BASE_URL, discovered_agent_id, "idle", timeout=30) # Now wait for IDLE
-        print(f"Agent {discovered_agent_id} reported state IDLE.")
+        await poll_storage_for_agent_state(discovered_agent_id, "idle", timeout=30) # Poll storage directly
+        print(f"Agent {discovered_agent_id} reported state IDLE in storage.")
     except TimeoutError:
-        pytest.fail(f"Agent {discovered_agent_id} did not report state IDLE after registration.")
+        pytest.fail(f"Agent {discovered_agent_id} did not report state IDLE after registration (state not found in storage).")
 
     # 4: Trigger Workflow
     print(f"Triggering workflow for agent {discovered_agent_id}...")
@@ -216,18 +208,19 @@ async def test_end_to_end_workflow(opscore_client: httpx.AsyncClient, agentkit_c
     # TODO: Potentially extract session ID if needed
 
     # 5, 6, 7: Verify Agent becomes 'active' and then 'idle'
-    print(f"Waiting for agent {discovered_agent_id} to become active...")
+    # 5, 6, 7: Verify Agent becomes 'active' and then 'idle' by polling storage directly
+    print(f"Waiting for agent {discovered_agent_id} to become active in storage...")
     try:
-        await poll_for_agent_state(OPSCORE_BASE_URL, discovered_agent_id, "active", timeout=30)
-        print(f"Agent {discovered_agent_id} is now active.")
+        await poll_storage_for_agent_state(discovered_agent_id, "active", timeout=30) # Poll storage directly
+        print(f"Agent {discovered_agent_id} is now active in storage.")
     except TimeoutError:
-        pytest.fail(f"Agent {discovered_agent_id} did not become active.")
+        pytest.fail(f"Agent {discovered_agent_id} did not become active (state not found in storage).")
 
-    print(f"Waiting for agent {discovered_agent_id} to become idle...")
+    print(f"Waiting for agent {discovered_agent_id} to become idle in storage...")
     try:
-        await poll_for_agent_state(OPSCORE_BASE_URL, discovered_agent_id, "idle", timeout=30)
-        print(f"Agent {discovered_agent_id} is now idle. Workflow complete.")
+        await poll_storage_for_agent_state(discovered_agent_id, "idle", timeout=30) # Poll storage directly
+        print(f"Agent {discovered_agent_id} is now idle in storage. Workflow complete.")
     except TimeoutError:
-        pytest.fail(f"Agent {discovered_agent_id} did not return to idle.")
+        pytest.fail(f"Agent {discovered_agent_id} did not return to idle (state not found in storage).")
 
 # TODO: Add more test cases for error handling, different workflow types, etc.

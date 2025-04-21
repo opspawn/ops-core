@@ -9,7 +9,7 @@ from datetime import datetime, timezone # Import timezone
 from typing import Dict, Any, Optional, List
 
 # Placeholder imports - replace with actual implementations
-from . import storage
+from .storage import get_storage # Import get_storage instead of the whole module
 from . import exceptions # Import custom exceptions
 from .models import AgentInfo, AgentRegistrationDetails, AgentState, WorkflowSession, SessionUpdate
 from .logging_config import get_logger
@@ -18,9 +18,9 @@ logger = get_logger(__name__)
 
 # --- Agent Registration ---
 
-def register_agent(agent_id: str, details: AgentRegistrationDetails) -> AgentInfo:
+async def register_agent(agent_id: str, details: AgentRegistrationDetails) -> AgentInfo:
     """ # Corrected indentation (4 spaces)
-    Registers a new agent with Ops-Core using the provided agent ID. # Corrected indentation (4 spaces)
+    Registers a new agent with Ops-Core using the provided agent ID. (Async) # Corrected indentation (4 spaces)
 
     Args: # Corrected indentation (4 spaces)
         agent_id: The unique ID for the agent (provided by AgentKit). # Corrected indentation (8 spaces)
@@ -54,14 +54,17 @@ def register_agent(agent_id: str, details: AgentRegistrationDetails) -> AgentInf
 
     # Store agent registration data using the storage module
     logger.debug(f"Lifecycle: Calling storage.save_agent_registration for agent {agent_id}")
+    storage_instance = get_storage()
+    logger.debug(f"Lifecycle: Calling storage.save_agent_registration for agent {agent_id}")
     try:
-        storage.save_agent_registration(agent_info)
+        await storage_instance.save_agent_registration(agent_info)
         logger.info(f"Lifecycle: Agent '{agent_name}' registration data saved successfully with ID: {agent_id}")
 
         # Set initial state after successful registration storage
         logger.debug(f"Lifecycle: Calling set_state for initial UNKNOWN state for agent {agent_id}")
         try:
-            set_state(agent_id=agent_id, new_state="UNKNOWN", details={"reason": "Initial registration"})
+            # Call the async set_state function
+            await set_state(agent_id=agent_id, new_state="UNKNOWN", details={"reason": "Initial registration"})
             logger.info(f"Lifecycle: Initial state 'UNKNOWN' set for agent {agent_id}")
         except Exception as state_e:
             # Log error setting initial state, but don't fail the registration itself?
@@ -81,9 +84,9 @@ def register_agent(agent_id: str, details: AgentRegistrationDetails) -> AgentInf
 
 # --- State Management ---
 
-def set_state(agent_id: str, new_state: str, details: Optional[Dict[str, Any]] = None, timestamp: Optional[str] = None):
+async def set_state(agent_id: str, new_state: str, details: Optional[Dict[str, Any]] = None, timestamp: Optional[str] = None):
     """
-    Updates the state of a registered agent.
+    Updates the state of a registered agent. (Async)
 
     Args:
         agent_id: The ID of the agent to update.
@@ -97,9 +100,10 @@ def set_state(agent_id: str, new_state: str, details: Optional[Dict[str, Any]] =
         exceptions.StorageError: If saving the state to storage fails.
     """
     logger.info(f"Lifecycle: Setting state for agent {agent_id} to '{new_state}'")
+    storage_instance = get_storage()
     # Validate agent_id exists using storage module (read operation)
     logger.debug(f"Lifecycle: Checking if agent {agent_id} exists before setting state.")
-    if not storage.read_agent_registration(agent_id):
+    if not await storage_instance.read_agent_registration(agent_id):
         logger.error(f"Lifecycle: Attempted to set state for unknown agent ID: {agent_id}")
         raise exceptions.AgentNotFoundError(agent_id)
     logger.debug(f"Lifecycle: Agent {agent_id} found.")
@@ -132,17 +136,19 @@ def set_state(agent_id: str, new_state: str, details: Optional[Dict[str, Any]] =
 
     # Store the state update using the storage module
     logger.debug(f"Lifecycle: Calling storage.save_agent_state for agent {agent_id}")
+    storage_instance = get_storage()
+    logger.debug(f"Lifecycle: Calling storage.save_agent_state for agent {agent_id}")
     try:
-        storage.save_agent_state(agent_state)
+        await storage_instance.save_agent_state(agent_state)
         logger.info(f"Lifecycle: State for agent {agent_id} updated to '{new_state}'")
     except Exception as e:
         logger.error(f"Lifecycle: Failed to save state for agent {agent_id} to storage: {e}", exc_info=True)
         raise exceptions.StorageError(f"Failed to save state for agent {agent_id}", original_exception=e) from e
 
 
-def get_state(agent_id: str) -> Optional[AgentState]:
+async def get_state(agent_id: str) -> Optional[AgentState]:
     """
-    Retrieves the current state of a registered agent.
+    Retrieves the current state of a registered agent. (Async)
 
     Args:
         agent_id: The ID of the agent.
@@ -152,9 +158,10 @@ def get_state(agent_id: str) -> Optional[AgentState]:
         or None if the agent or state is not found.
     """
     logger.debug(f"Lifecycle: Fetching state for agent {agent_id}")
+    storage_instance = get_storage()
     # Retrieve state from storage module
     logger.debug(f"Lifecycle: Calling storage.read_latest_agent_state for agent {agent_id}")
-    agent_state = storage.read_latest_agent_state(agent_id)
+    agent_state = await storage_instance.read_latest_agent_state(agent_id)
     logger.debug(f"Lifecycle: storage.read_latest_agent_state returned: {agent_state}")
     if agent_state:
         logger.debug(f"Lifecycle: Found state for agent {agent_id}: {agent_state.state}")
@@ -165,9 +172,9 @@ def get_state(agent_id: str) -> Optional[AgentState]:
 
 # --- Session Management ---
 
-def start_session(agent_id: str, workflow_id: str) -> WorkflowSession:
+async def start_session(agent_id: str, workflow_id: str) -> WorkflowSession:
     """
-    Starts a new workflow session for an agent.
+    Starts a new workflow session for an agent. (Async)
 
     Args:
         agent_id: The ID of the agent involved in the session.
@@ -183,9 +190,10 @@ def start_session(agent_id: str, workflow_id: str) -> WorkflowSession:
     """
     logger.info(f"Lifecycle: Attempting to start new session for agent {agent_id}, workflow {workflow_id}")
 
+    storage_instance = get_storage()
     # Validate agent_id exists
     logger.debug(f"Lifecycle: Checking if agent {agent_id} exists before starting session.")
-    if not storage.read_agent_registration(agent_id):
+    if not await storage_instance.read_agent_registration(agent_id):
         logger.error(f"Lifecycle: Cannot start session: Agent {agent_id} not found.")
         raise exceptions.AgentNotFoundError(agent_id)
     logger.debug(f"Lifecycle: Agent {agent_id} found.")
@@ -202,10 +210,11 @@ def start_session(agent_id: str, workflow_id: str) -> WorkflowSession:
         logger.error(f"Lifecycle: Failed to create WorkflowSession model: {e}", exc_info=True)
         raise exceptions.OpsCoreError(f"Failed to initialize session object: {e}") from e
 
+    storage_instance = get_storage()
     # Store session data using storage module
     logger.debug(f"Lifecycle: Calling storage.create_session for session {session.sessionId}")
     try:
-        storage.create_session(session)
+        await storage_instance.create_session(session)
         logger.info(f"Lifecycle: Session {session.sessionId} started successfully for agent {agent_id}, workflow {workflow_id}")
     except ValueError as e: # Catch potential duplicate ID error from storage
         logger.error(f"Lifecycle: Failed to create session in storage: {e}", exc_info=True)
@@ -216,9 +225,9 @@ def start_session(agent_id: str, workflow_id: str) -> WorkflowSession:
 
     return session
 
-def update_session(session_id: str, update_payload: SessionUpdate) -> WorkflowSession:
+async def update_session(session_id: str, update_payload: SessionUpdate) -> WorkflowSession:
     """
-    Updates an existing workflow session using provided data.
+    Updates an existing workflow session using provided data. (Async)
 
     Args:
         session_id: The ID of the session to update.
@@ -239,8 +248,9 @@ def update_session(session_id: str, update_payload: SessionUpdate) -> WorkflowSe
 
     if not update_dict:
         logger.warning(f"Lifecycle: Update called for session {session_id} with no changes provided.")
+        storage_instance = get_storage()
         # Optionally return the existing session without hitting storage
-        existing_session = storage.read_session(session_id)
+        existing_session = await storage_instance.read_session(session_id)
         if not existing_session:
              raise exceptions.SessionNotFoundError(session_id)
         return existing_session
@@ -256,9 +266,10 @@ def update_session(session_id: str, update_payload: SessionUpdate) -> WorkflowSe
 
     logger.debug(f"Lifecycle: Applying updates to session {session_id}: {update_dict}")
 
+    storage_instance = get_storage()
     logger.debug(f"Lifecycle: Calling storage.update_session_data for session {session_id}")
     try:
-        updated_session = storage.update_session_data(session_id, update_dict)
+        updated_session = await storage_instance.update_session_data(session_id, update_dict)
         logger.info(f"Lifecycle: Session {session_id} updated successfully.")
         return updated_session
     except exceptions.SessionNotFoundError as e: # Catch specific not found error from storage
@@ -272,9 +283,9 @@ def update_session(session_id: str, update_payload: SessionUpdate) -> WorkflowSe
         raise exceptions.StorageError(f"Failed to update session {session_id}", original_exception=e) from e
 
 
-def get_session(session_id: str) -> Optional[WorkflowSession]:
+async def get_session(session_id: str) -> Optional[WorkflowSession]:
     """
-    Retrieves details of a specific workflow session.
+    Retrieves details of a specific workflow session. (Async)
 
     Args:
         session_id: The ID of the session.
@@ -283,8 +294,9 @@ def get_session(session_id: str) -> Optional[WorkflowSession]:
         A WorkflowSession object representing the session data, or None if not found.
     """
     logger.debug(f"Lifecycle: Fetching session details for {session_id}")
+    storage_instance = get_storage()
     logger.debug(f"Lifecycle: Calling storage.read_session for session {session_id}")
-    session = storage.read_session(session_id)
+    session = await storage_instance.read_session(session_id)
     logger.debug(f"Lifecycle: storage.read_session returned: {session}")
     if session:
         logger.debug(f"Lifecycle: Found session {session_id}")

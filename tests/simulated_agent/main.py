@@ -170,6 +170,40 @@ async def lifespan(app: FastAPI):
             # IMPORTANT: Use the ID returned by AgentKit
             registered = True
             logger.info(f"Simulated Agent '{AGENT_NAME}' registered successfully with ID '{ACTUAL_AGENT_ID}'")
+
+            # --- Send initial IDLE state to OpsCore (with retry) ---
+            initial_state_reported = False
+            report_attempts = 0
+            max_report_attempts = 5
+            while not initial_state_reported and report_attempts < max_report_attempts:
+                report_attempts += 1
+                try:
+                    logger.info(f"Attempt {report_attempts}/{max_report_attempts}: Sending initial 'idle' state to OpsCore for agent {ACTUAL_AGENT_ID}")
+                    # Add a small delay *before* the first attempt too, after registration success
+                    if report_attempts > 1:
+                        await asyncio.sleep(3) # Wait longer between retries
+                    else:
+                         await asyncio.sleep(1) # Short delay before first attempt
+
+                    await clients["opscore"].report_state(ACTUAL_AGENT_ID, "idle", details={"reason": "Initial startup complete"})
+                    logger.info(f"Initial 'idle' state reported successfully.")
+                    initial_state_reported = True
+                except OpsCoreError as report_e:
+                    logger.warning(f"Attempt {report_attempts}/{max_report_attempts}: Failed to report initial 'idle' state to OpsCore: {report_e}. Retrying...")
+                    # Check if it was a client error (4xx) suggesting agent not found yet
+                    if report_e.status_code and 400 <= report_e.status_code < 500:
+                        pass # Retry is expected
+                    else:
+                        # Log more severe errors but still retry for now
+                        logger.error(f"Non-4xx error reporting initial state: {report_e.status_code} - {report_e.response_data}")
+                except Exception as report_e:
+                     logger.error(f"Attempt {report_attempts}/{max_report_attempts}: Unexpected error reporting initial 'idle' state: {report_e}. Retrying...")
+
+            if not initial_state_reported:
+                 logger.error(f"Failed to report initial 'idle' state after {max_report_attempts} attempts. Continuing without initial state report.")
+                 # Decide if this should be fatal? For the test, maybe not.
+            # ----------------------------------------------------
+
         except AgentKitError as e:
             logger.error(f"Attempt {attempts}/{max_attempts}: Failed to register with AgentKit: {e}. Retrying in 5 seconds...")
             await asyncio.sleep(5)

@@ -12,3 +12,4 @@ pytest-httpx>=0.29.0,<1.0.0 # For mocking httpx requests in tests
 click>=8.0.0,<9.0.0 # For building the CLI application
 pytest-httpx # For mocking HTTP requests in SDK tests
 # pytest-lazy-fixture # Removed due to collection errors/incompatibility
+redis>=4.2.0 # Add redis package with async support

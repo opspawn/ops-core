@@ -17,7 +17,13 @@ services:
       - OPSCORE_API_KEY=test-api-key # API Key Ops-Core expects from agents/AgentKit SDK
       # Point to the real agentkit service (internal port is 8000)
       - AGENTKIT_API_URL=http://agentkit_real_service:8000/v1 # Added /v1 based on AgentKit docs
+      # --- Redis Configuration for Integration Tests ---
+      - OPSCORE_STORAGE_TYPE=redis # Signal Ops-Core to use Redis
+      - REDIS_HOST=redis # Redis service hostname
+      - REDIS_PORT=6379 # Default Redis port
     command: uvicorn opscore.api:app --host 0.0.0.0 --port 8000 --reload # Use --reload for development
+    depends_on: # Add dependency on Redis
+      - redis
 
   agentkit_real_service:
     build:
@@ -67,3 +73,9 @@ services:
       - opscore
       - agentkit_real_service # Ensure Ops-Core and AgentKit start first
     command: uvicorn main:app --host 0.0.0.0 --port 8080 --reload # Use reload for test dev
+
+  redis:
+    image: redis:alpine # Use a lightweight Redis image
+    container_name: redis_service_real
+    ports:
+      - "6380:6379" # Map host port 6380 to container port 6379
