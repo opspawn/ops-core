@@ -1,0 +1,3 @@
+Method,Name,Error,Occurrences
+POST,/v1/opscore/internal/agent/notify,CatchResponseError('Failed to register agent: 0'),100
+POST,/v1/opscore/agent/[id]/workflow,"ConnectionRefusedError(111, 'Connection refused')",2335
