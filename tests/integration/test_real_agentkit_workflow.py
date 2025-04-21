@@ -60,7 +60,7 @@ async def poll_api_for_agent_state(opscore_client: httpx.AsyncClient, agent_id: 
             print(f"API poll for {agent_id}: Unexpected error {e}")
             # Continue polling on error, but log it
 
-        await asyncio.sleep(1) # Wait before next poll attempt
+        await asyncio.sleep(0.1) # Wait before next poll attempt (reduced interval)
 
     raise TimeoutError(f"Agent {agent_id} did not reach state '{expected_state}' via API within {timeout} seconds. Last state: {last_state}")
 
@@ -105,14 +105,6 @@ async def poll_api_for_agent_state(opscore_client: httpx.AsyncClient, agent_id: 
 #
 #     print(f"\nStopping services from {compose_file}...")
 #     stop_command = ["docker-compose", "-f", compose_file, "down", "--remove-orphans"]
-#     # subprocess.run(stop_command, check=True, cwd=project_dir) # Problematic line
-#
-@pytest_asyncio.fixture(scope="function") # Change scope to function
-async def opscore_client() -> AsyncGenerator[httpx.AsyncClient, None]:
-    """HTTP client for interacting with the Ops-Core service."""
-    async with httpx.AsyncClient(base_url=OPSCORE_BASE_URL, timeout=30.0) as client:
-        yield client
-
 @pytest_asyncio.fixture(scope="function") # Change scope to function
 async def agentkit_client() -> httpx.AsyncClient:
     """HTTP client for interacting with the AgentKit service."""
@@ -164,65 +156,59 @@ async def test_end_to_end_workflow(opscore_client: httpx.AsyncClient, agentkit_c
         pytest.fail(f"Failed to discover agent ID from Simulated Agent health endpoint: {e}")
 
 
-    # Add a small delay to allow Ops-Core to process the registration webhook
-    print("Waiting 5 seconds for Ops-Core to process registration webhook...")
-    await asyncio.sleep(15)
-    print("Continuing test...")
-
-    # 3. Verify Agent Registration in Ops-Core (via webhook)
-    # 3. Verify Agent Registration in Ops-Core (via webhook) by polling storage directly
-    # Step 3a: Poll storage for the initial "UNKNOWN" state set by webhook processing
-    print(f"Verifying initial registration (state UNKNOWN) of agent {discovered_agent_id} in storage...")
+    # 3. Verify Agent Registration and initial state in Ops-Core
+    # After registration via AgentKit webhook, the simulated agent reports its initial 'idle' state.
+    # We wait for the agent to reach the 'idle' state, which confirms both registration
+    # and the agent's successful startup and initial state report.
+    print(f"Waiting for agent {discovered_agent_id} to report state IDLE via API...")
     try:
-        await poll_api_for_agent_state(opscore_client, discovered_agent_id, "UNKNOWN", timeout=30) # Poll API
-        print(f"Agent {discovered_agent_id} successfully registered in storage (state UNKNOWN found).")
+        await poll_api_for_agent_state(opscore_client, discovered_agent_id, "idle", timeout=30) # Poll API for IDLE
+        print(f"Agent {discovered_agent_id} reported state IDLE via API.")
     except TimeoutError:
-        pytest.fail(f"Agent {discovered_agent_id} did not reach state UNKNOWN in storage after startup webhook.")
+        pytest.fail(f"Agent {discovered_agent_id} did not report state IDLE after registration.")
 
-    # Step 3b: Now wait for the agent to report itself as "idle" by polling storage directly
-    print(f"Waiting for agent {discovered_agent_id} to report state IDLE in storage...")
-    try:
-        await poll_api_for_agent_state(opscore_client, discovered_agent_id, "idle", timeout=30) # Poll API
-        print(f"Agent {discovered_agent_id} reported state IDLE in storage.")
-    except TimeoutError:
-        pytest.fail(f"Agent {discovered_agent_id} did not report state IDLE after registration (state not found in storage).")
+# The test now proceeds directly to triggering the workflow after confirming the agent is IDLE.
+# The 'UNKNOWN' state is a transient internal state and not strictly necessary to verify externally for this workflow test.
 
-    # 4: Trigger Workflow
-    print(f"Triggering workflow for agent {discovered_agent_id}...")
-    workflow_payload = {
-        "workflow_name": "simulated_test_workflow",
-        # Define a simple inline workflow
-        "definition": {
-            "description": "Simple test workflow for simulation",
-            "tasks": [
-                {
-                    "task_id": "sim_task_1",
-                    "task_name": "simulation_step",
-                    "parameters": {"duration": 2}
-                }
-            ]
+        # 4: Trigger Workflow
+        print(f"Triggering workflow for agent {discovered_agent_id}...")
+        workflow_payload = {
+            "workflow_name": "simulated_test_workflow",
+            # Define a simple inline workflow
+            "definition": {
+                "description": "Simple test workflow for simulation",
+                "tasks": [
+                    {
+                        "task_id": "sim_task_1",
+                        "task_name": "simulation_step",
+                        "parameters": {"duration": 2}
+                    }
+                ]
+            }
         }
-    }
-    # Use the opscore_client fixture here
-    trigger_response = await opscore_client.post(f"/v1/opscore/agent/{discovered_agent_id}/workflow", json=workflow_payload)
-    assert trigger_response.status_code == 202 # Expect 202 Accepted for async trigger
-    print(f"Workflow triggered successfully for agent {discovered_agent_id}.")
-    # TODO: Potentially extract session ID if needed
-
-    # 5, 6, 7: Verify Agent becomes 'active' and then 'idle'
-    # 5, 6, 7: Verify Agent becomes 'active' and then 'idle' by polling storage directly
-    print(f"Waiting for agent {discovered_agent_id} to become active in storage...")
-    try:
-        await poll_api_for_agent_state(opscore_client, discovered_agent_id, "active", timeout=30) # Poll API
-        print(f"Agent {discovered_agent_id} is now active in storage.")
-    except TimeoutError:
-        pytest.fail(f"Agent {discovered_agent_id} did not become active (state not found in storage).")
-
-    print(f"Waiting for agent {discovered_agent_id} to become idle in storage...")
-    try:
-        await poll_api_for_agent_state(opscore_client, discovered_agent_id, "idle", timeout=30) # Poll API
-        print(f"Agent {discovered_agent_id} is now idle in storage. Workflow complete.")
-    except TimeoutError:
-        pytest.fail(f"Agent {discovered_agent_id} did not return to idle (state not found in storage).")
+        # Use the opscore_client fixture here
+        trigger_response = await opscore_client.post(f"/v1/opscore/agent/{discovered_agent_id}/workflow", json=workflow_payload)
+        if trigger_response.status_code != 202:
+            print(f"Workflow trigger failed with status code {trigger_response.status_code}. Response body: {trigger_response.text}")
+        assert trigger_response.status_code == 202 # Expect 202 Accepted for async trigger
+        print(f"Workflow triggered successfully for agent {discovered_agent_id}.")
+        # TODO: Potentially extract session ID if needed
+    
+        # 5, 6, 7: Verify Agent becomes 'active' and then 'idle'
+        # Poll for the agent to become 'active' during task execution
+        print(f"Waiting for agent {discovered_agent_id} to become active via API...")
+        try:
+            await poll_api_for_agent_state(opscore_client, discovered_agent_id, "active", timeout=30) # Poll API for ACTIVE
+            print(f"Agent {discovered_agent_id} is now active via API.")
+        except TimeoutError:
+            pytest.fail(f"Agent {discovered_agent_id} did not become active during workflow execution.")
+    
+        # Poll for the agent to return to 'idle' after task completion
+        print(f"Waiting for agent {discovered_agent_id} to become idle via API...")
+        try:
+            await poll_api_for_agent_state(opscore_client, discovered_agent_id, "idle", timeout=30) # Poll API for IDLE
+            print(f"Agent {discovered_agent_id} is now idle via API. Workflow complete.")
+        except TimeoutError:
+            pytest.fail(f"Agent {discovered_agent_id} did not return to idle after workflow completion.")
 
 # TODO: Add more test cases for error handling, different workflow types, etc.

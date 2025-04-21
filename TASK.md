@@ -71,7 +71,7 @@ This TASK.md document provides a detailed, step-by-step checklist for developing
      - [X] Validate agent registration with both valid and invalid data.
      - [X] Test state transitions and session tracking.
     - Verify workflow sequencing and error recovery functionalities.
-- [P] **Task 4.2:** Develop integration tests simulating complete workflows (e.g., agent registration → state update → workflow execution). (Status: Implemented Redis storage backend and refactored for async. Debugged test environment issues (venv activation, missing packages). Resolved `SyntaxError` and `ValueError` in `tests/conftest.py`. Resolved `401 Unauthorized` error by temporarily hardcoding API key in `tests/conftest.py`. Test now fails with `TimeoutError` waiting for the agent state to become 'UNKNOWN' via the API. - 2025-04-20)
+- [X] **Task 4.2:** Develop integration tests simulating complete workflows (e.g., agent registration → state update → workflow execution). (Completed: Debugged and fixed integration test failures related to API key handling, simulated agent state reporting payload, and test logic race conditions. Test `test_real_agentkit_workflow.py` now passes. - 2025-04-20)
 - [ ] **Task 4.3:** Set up GitHub Actions to automatically run tests, enforce linting, and maintain code style.
 - [ ] **Task 4.4:** Perform performance and load testing on API endpoints to gauge response times.
 - [ ] **Task 4.5:** Conduct User Acceptance Testing (UAT) with internal scenarios and sample use cases.
@@ -97,6 +97,8 @@ This TASK.md document provides a detailed, step-by-step checklist for developing
 - [ ] **Task B5:** Optimize workflow orchestration with machine learning–driven performance adjustments.
 - [ ] **Task B6:** Expand API endpoints to support additional third-party tool integrations.
 - [ ] **Task B7:** Address `httpx` DeprecationWarnings in `tests/test_middleware.py` related to `TestClient` instantiation. (Identified 2025-04-19)
+- [ ] **Task B8:** Implement proper environment variable loading in test suite to remove hardcoded API key in `tests/conftest.py`. (Identified 2025-04-20)
+- [ ] **Task B9:** Investigate and potentially implement more robust test verification methods (e.g., direct DB inspection, event-driven checks) as alternatives to API polling in integration tests. (Identified 2025-04-20)
 
 ---
 

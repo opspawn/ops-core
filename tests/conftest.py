@@ -32,6 +32,10 @@ except ImportError as e:
     # Re-raise the exception to make it clear there's an issue
     raise
 
+# Import constants from the integration test file (consider moving to a shared constants file later)
+from tests.integration.test_real_agentkit_workflow import OPSCORE_BASE_URL, AGENTKIT_BASE_URL
+
+
 @pytest.fixture() # Removed autouse=True
 def clear_storage_before_each_test():
     """

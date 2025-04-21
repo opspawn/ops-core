@@ -3,7 +3,7 @@ import os
 import uuid
 import asyncio
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager # Import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from pydantic import BaseModel, Field
 import httpx
@@ -11,6 +11,7 @@ import httpx
 # Configure basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("SimulatedAgent")
+from datetime import datetime, timezone # Import datetime and timezone
 
 # --- Configuration ---
 AGENTKIT_API_URL = os.getenv("AGENTKIT_API_URL", "http://localhost:8001/v1")
@@ -134,6 +135,8 @@ class OpsCoreClient:
             # even though it's in the URL path. Let's include it for safety.
             # Update: OpsCore state endpoint schema doesn't require agentId in body
             # "agentId": agent_id, # Removed based on OpsCore schema review
+        "agentId": agent_id, # Add agentId back as required by OpsCore API
+            "timestamp": datetime.now(timezone.utc).isoformat(), # Add current UTC timestamp
         }
         logger.info(f"Reporting state '{state}' for agent {agent_id} to OpsCore at {self.base_url}...")
         await self._request("POST", path, json=payload)
