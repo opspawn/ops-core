@@ -24,11 +24,35 @@ class OpsCoreUser(HttpUser):
         Called when a Locust user starts.
         Set the default headers for API Key authentication and register the agent.
         """
-        self.client.headers = {"Authorization": f"Bearer {OPSCORE_API_KEY}"}
+        # Temporarily remove headers for registration
+        original_headers = self.client.headers
+        self.client.headers = {}
+
         # Generate a unique agent ID for each user instance
         self.agent_id = f"loadtest-agent-{random.randint(10000, 99999)}"
         print(f"Locust user starting with agent ID: {self.agent_id}")
         self.register_with_opscore() # Register the agent with Ops-Core
+        time.sleep(1) # Add a small delay to allow state to be saved
+
+        # Wait for agent state to be available
+        timeout = 10  # seconds
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            try:
+                state_response = self.client.get(f"/v1/opscore/agent/{self.agent_id}/state", name="/v1/opscore/agent/[id]/state")
+                if state_response.status_code == 200 and state_response.json() is not None:
+                    print(f"Agent {self.agent_id} state available.")
+                    break
+            except Exception as e:
+                print(f"Error checking agent state for {self.agent_id}: {e}")
+            time.sleep(0.5) # Wait before retrying
+        else:
+            print(f"Timeout waiting for agent {self.agent_id} state.")
+            # Optionally fail the user if state is not available within timeout
+            # self.environment.runner.quit() # Example of how to stop the test
+
+        # Restore original headers for subsequent tasks
+        self.client.headers = original_headers
 
     def register_with_opscore(self):
         """

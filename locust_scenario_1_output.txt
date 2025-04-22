@@ -1,0 +1,49 @@
+[2025-04-21 19:10:56,066] SF2024/INFO/locust.main: Starting Locust 2.35.0
+[2025-04-21 19:10:56,077] SF2024/INFO/locust.main: Run time limit set to 15 seconds
+[2025-04-21 19:10:56,078] SF2024/INFO/locust.runners: Ramping to 10 users at a rate of 2.00 per second
+[2025-04-21 19:11:00,085] SF2024/INFO/locust.runners: All users spawned: {"OpsCoreUser": 10} (10 total users)
+[2025-04-21 19:11:10,514] SF2024/INFO/locust.main: --run-time limit reached, shutting down
+[2025-04-21 19:11:10,614] SF2024/INFO/locust.main: Shutting down (exit code 1)
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+POST     /v1/opscore/agent/[id]/state                                                      20  20(100.00%) |      6       1      47      3 |    1.53        1.53
+POST     /v1/opscore/internal/agent/notify                                                 10  10(100.00%) |     12       2      28      5 |    0.77        0.77
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                        30  30(100.00%) |      8       1      47      4 |    2.30        2.30
+
+Response time percentiles (approximated)
+Type     Name                                                                                  50%    66%    75%    80%    90%    95%    98%    99%  99.9% 99.99%   100% # reqs
+--------|--------------------------------------------------------------------------------|--------|------|------|------|------|------|------|------|------|------|------|------
+POST     /v1/opscore/agent/[id]/state                                                            3      4      5      5     13     48     48     48     48     48     48     20
+POST     /v1/opscore/internal/agent/notify                                                       6     14     27     29     29     29     29     29     29     29     29     10
+--------|--------------------------------------------------------------------------------|--------|------|------|------|------|------|------|------|------|------|------|------
+         Aggregated                                                                              4      5      6     13     29     29     48     48     48     48     48     30
+
+Error report
+# occurrences      Error                                                                                               
+------------------|---------------------------------------------------------------------------------------------------------------------------------------------
+10                 POST /v1/opscore/internal/agent/notify: Failed to register agent: 0                                 
+18                 POST /v1/opscore/agent/[id]/state: ConnectionResetError(104, 'Connection reset by peer')            
+2                  POST /v1/opscore/agent/[id]/state: RemoteDisconnected('Remote end closed connection without response')
+------------------|---------------------------------------------------------------------------------------------------------------------------------------------
+
+Locust user starting with agent ID: loadtest-agent-69937
+Locust user starting with agent ID: loadtest-agent-85089
+Failed to register agent loadtest-agent-69937 with Ops-Core. Status: 0, Response: 
+Failed to register agent loadtest-agent-85089 with Ops-Core. Status: 0, Response: 
+Locust user starting with agent ID: loadtest-agent-61656
+Locust user starting with agent ID: loadtest-agent-92219
+Failed to register agent loadtest-agent-61656 with Ops-Core. Status: 0, Response: 
+Failed to register agent loadtest-agent-92219 with Ops-Core. Status: 0, Response: 
+Locust user starting with agent ID: loadtest-agent-55324
+Locust user starting with agent ID: loadtest-agent-99961
+Failed to register agent loadtest-agent-55324 with Ops-Core. Status: 0, Response: 
+Failed to register agent loadtest-agent-99961 with Ops-Core. Status: 0, Response: 
+Locust user starting with agent ID: loadtest-agent-53025
+Locust user starting with agent ID: loadtest-agent-15391
+Failed to register agent loadtest-agent-53025 with Ops-Core. Status: 0, Response: 
+Failed to register agent loadtest-agent-15391 with Ops-Core. Status: 0, Response: 
+Locust user starting with agent ID: loadtest-agent-87202
+Locust user starting with agent ID: loadtest-agent-45826
+Failed to register agent loadtest-agent-87202 with Ops-Core. Status: 0, Response: 
+Failed to register agent loadtest-agent-45826 with Ops-Core. Status: 0, Response: 

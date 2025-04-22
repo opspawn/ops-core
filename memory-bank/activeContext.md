@@ -4,6 +4,8 @@
 - **Completed:** Phase 1, Phase 2, Task 3.1 (SDK), Task 3.2 (CLI), Task 3.4 (AgentKit Integration), Task 3.3 (Middleware), Task 5.6 (AgentKit Requirements Doc Update), **Task 4.2 (Real AgentKit Integration Tests)**, **Task 4.4 (Minimal Load Test Scenario 0)**.
 - **Focus:** Debugging agent registration failures during load testing (Scenario 1 and 2).
 
+:start_line:7
+-------
 ## 2. Recent Changes & Decisions (This Session - 2025-04-21 @ 08:50 - 09:23)
 - **Completed Task 4.4 (Minimal Load Test Scenario 0):**
     - Added Scenario 0 (Minimal Load Test) to `load_testing_plan.md`.
@@ -12,7 +14,7 @@
     - Resolved "command not found" by executing Locust via the virtual environment's Python interpreter (`./.venv/bin/python -m locust`).
     - Resolved `AttributeError: 'OpsCoreUser' object has no attribute 'get_request_meta'` by removing incorrect method calls in `load_tests/opscore_locustfile.py`.
     - Resolved `401 Unauthorized` error by ensuring the correct API key ("test-api-key") was passed as an environment variable to the Locust command.
-    - Resolved `404 Not Found` error for state updates by adding agent registration via the internal notification endpoint (`/v1/opscore/internal/agent/notify`) in `load_tests/opscore_locustfile.py`'s `on_start` method.
+    - Resolved `404 Not Found` error for state updates by adding agent registration via the internal notification endpoint (`/v1/opscore/internal/agent/notify`) in `load_tests/scenario_1/locustfile.py`'s `on_start` method.
     - Configured Locust to run in headless mode and redirect output to `load_test_results.txt` for easier review.
     - Successfully executed the minimal load test (Scenario 0) with 0% failures.
 - **Debugging Agent Registration Failures (Scenario 1 & 2):**
@@ -20,11 +22,18 @@
     - Removed `Authorization` header for registration endpoint calls in `load_tests/scenario_1/locustfile.py` as it's not required. This did not resolve the issue.
     - Identified `AttributeError: 'NoneType' object has no attribute 'state'` in Ops-Core logs, indicating an issue when getting agent state before it's set. Fixed this in `opscore/api.py`. This prevented the 500 error but not the registration failure.
     - Added a small delay after registration in `load_tests/scenario_1/locustfile.py` to allow state to be saved. This did not resolve the issue.
+    - Added wait-and-retry logic in `load_tests/scenario_1/locustfile.py` after registration to wait for agent state availability. This did not resolve the issue.
+    - Added detailed logging in `opscore/api.py`, `opscore/lifecycle.py`, and `opscore/storage.py` to trace registration and state saving.
+    - Simplified the `/v1/opscore/internal/agent/notify` endpoint in `opscore/api.py` to a minimal implementation returning only a success response. The issue persists even with the minimal endpoint.
+    - Attempted to access Ops-Core container logs directly using `docker logs` and by reading log files inside the container using `docker exec cat`. Logs remain empty, preventing diagnosis of the early failure.
 - **Decision:** Use headless mode and output redirection for future load test runs.
 - **Decision:** Shorten test duration during debugging cycles.
+- **Decision:** Debugging is currently blocked by the inability to retrieve logs from the Ops-Core container.
 
 ## 3. Next Steps (Next Session)
-- **Continue Debugging Agent Registration:** Investigate the root cause of agent registration failures (`Failed to register agent: 0`, `ConnectionResetError`) during load testing. Focus on the `/v1/opscore/internal/agent/notify` endpoint and its interaction with the storage layer.
+- **Investigate Ops-Core Logging/Container Output:** Determine why logs are not being generated or are inaccessible from the Ops-Core container. This may require manual investigation outside of the current tool capabilities or exploring alternative logging configurations.
+- **Continue Debugging Agent Registration:** Once logs are accessible, analyze them to pinpoint the exact cause of the "Failed to register agent: 0" error and `ConnectionResetError` during registration.
+- **Implement Fixes:** Address the identified root cause of the registration failures.
 - **Execute Remaining Load Tests (if registration is fixed):** If agent registration is resolved, execute the full load testing scenarios (Scenario 1, 2, 3, and 4) as defined in `load_testing_plan.md`.
 - **Analyze Results:** Review the output from the load tests in `load_test_results.txt` and potentially other monitoring tools (`docker stats`).
 - **Document Findings:** Summarize the results, identify bottlenecks, and document recommendations in `load_testing_plan.md` and potentially other documentation.

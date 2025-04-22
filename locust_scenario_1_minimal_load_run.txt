@@ -1,0 +1,3 @@
+Locust user starting with agent ID: loadtest-agent-30148
+Failed to register agent loadtest-agent-30148 with Ops-Core. Status: 0, Response: 
+Timeout waiting for agent loadtest-agent-30148 state.

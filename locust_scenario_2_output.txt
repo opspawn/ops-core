@@ -1,0 +1,30 @@
+[2025-04-21 18:29:37,077] SF2024/INFO/locust.main: Starting Locust 2.35.0
+[2025-04-21 18:29:37,077] SF2024/INFO/locust.main: Run time limit set to 10 seconds
+[2025-04-21 18:29:37,078] SF2024/INFO/locust.runners: Ramping to 1 users at a rate of 1.00 per second
+[2025-04-21 18:29:37,080] SF2024/INFO/locust.runners: All users spawned: {"OpsCoreUser": 1} (1 total users)
+[2025-04-21 18:29:46,575] SF2024/INFO/locust.main: --run-time limit reached, shutting down
+[2025-04-21 18:29:46,609] SF2024/INFO/locust.main: Shutting down (exit code 1)
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+POST     /v1/opscore/agent/[id]/workflow                                                    1   1(100.00%) |      2       2       2      2 |   32.89       32.89
+POST     /v1/opscore/internal/agent/notify                                                  1   1(100.00%) |     25      25      25     25 |   32.89       32.89
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                         2   2(100.00%) |     14       2      25      2 |   65.77       65.77
+
+Response time percentiles (approximated)
+Type     Name                                                                                  50%    66%    75%    80%    90%    95%    98%    99%  99.9% 99.99%   100% # reqs
+--------|--------------------------------------------------------------------------------|--------|------|------|------|------|------|------|------|------|------|------|------
+POST     /v1/opscore/agent/[id]/workflow                                                         2      2      2      2      2      2      2      2      2      2      2      1
+POST     /v1/opscore/internal/agent/notify                                                      26     26     26     26     26     26     26     26     26     26     26      1
+--------|--------------------------------------------------------------------------------|--------|------|------|------|------|------|------|------|------|------|------|------
+         Aggregated                                                                             26     26     26     26     26     26     26     26     26     26     26      2
+
+Error report
+# occurrences      Error                                                                                               
+------------------|---------------------------------------------------------------------------------------------------------------------------------------------
+1                  POST /v1/opscore/internal/agent/notify: Failed to register agent: 0                                 
+1                  POST /v1/opscore/agent/[id]/workflow: ConnectionResetError(104, 'Connection reset by peer')         
+------------------|---------------------------------------------------------------------------------------------------------------------------------------------
+
+Locust user starting with agent ID: loadtest-agent-68045
+Failed to register agent loadtest-agent-68045 with Ops-Core. Status: 0, Response: 

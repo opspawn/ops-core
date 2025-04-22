@@ -32,25 +32,27 @@ This document summarizes the debugging steps taken during load testing of Ops-Co
 *   **Finding 3:** The persistent agent registration failures (status 0) and `ConnectionResetError` after registration, even with the `AttributeError` fixed, point to a deeper issue in the agent registration flow or the storage interaction. Although `OPSCORE_STORAGE_TYPE` is set to `redis`, the behavior suggests potential blocking or timing issues during the initial state saving after registration.
 *   **Resolution 3:** Added a small `time.sleep(1)` delay in the Locust user's `on_start` method after the registration call to allow the initial state to be potentially saved before other operations.
 *   **Result 3:** Re-running the short Scenario 1 test after adding the delay still resulted in 100% failures with the same registration errors. The delay did not resolve the issue.
+*   **Finding 4:** Added wait-and-retry logic in `load_tests/scenario_1/locustfile.py` after registration to wait for agent state availability. This did not resolve the issue, suggesting the problem is not simply a timing issue on the client side.
+*   **Finding 5:** Added detailed logging in `opscore/api.py`, `opscore/lifecycle.py`, and `opscore/storage.py` to trace registration and state saving.
+*   **Finding 6:** Simplified the `/v1/opscore/internal/agent/notify` endpoint in `opscore/api.py` to a minimal implementation returning only a success response. The issue persists even with the minimal endpoint, indicating the problem is likely at a lower level than the application logic.
+*   **Finding 7:** Attempted to access Ops-Core container logs directly using `docker logs` and by reading log files inside the container using `docker exec cat`. Logs remain empty, and `docker logs` resulted in an undefined exit code, preventing diagnosis of the early failure.
 
 **Current Status:**
 
 *   The original 500 Internal Server Errors related to workflow initiation (`NameError`) are resolved.
 *   The load tests for both Scenario 1 and Scenario 2 are currently blocked by agent registration failures (`Failed to register agent: 0` and `ConnectionResetError`).
-*   The root cause of the agent registration failure is still unknown. It appears the `/v1/opscore/internal/agent/notify` endpoint is not successfully completing the agent registration process, or the subsequent state saving is failing in a way that leads to connection resets for the Locust client.
+*   The root cause of the agent registration failure is still unknown. The issue appears to be occurring at a low level, likely within the FastAPI/Uvicorn server or the Docker networking layer, specifically when handling the load from Locust, before application logging can capture any details. Logs from the Ops-Core container are currently inaccessible.
 
 **Next Steps:**
 
-The next debugging session should focus specifically on the agent registration process (`/v1/opscore/internal/agent/notify` endpoint) and its interaction with the storage layer (`opscore/lifecycle.py` and `opscore/storage.py`) to understand why the registration is failing with status 0 and causing connection resets for the Locust clients. This may involve:
-
-*   Adding more detailed logging within the `agent_notification` endpoint and the `lifecycle.register_agent` function to pinpoint the exact point of failure.
-*   Examining the Redis logs (if accessible) to see if registration data is being received and processed.
-*   Further scrutinizing the `RedisStorage.save_agent_registration` and `RedisStorage.save_agent_state` methods for potential issues.
+Further debugging requires resolving the issue with accessing logs from the Ops-Core container or using alternative methods to capture the container's standard output/error streams. Once logs are accessible, analyze them to pinpoint the exact cause of the "Failed to register agent: 0" error and `ConnectionResetError` during registration.
 
 **Files Modified:**
 
-*   `load_tests/scenario_1/locustfile.py` (Removed auth header for registration, added delay)
-*   `opscore/api.py` (Added None check in `get_agent_state` debug log)
-*   `TASK.md` (Will be updated)
-*   `memory-bank/activeContext.md` (Will be updated)
-*   `memory-bank/progress.md` (Will be updated)
+*   `load_tests/scenario_1/locustfile.py` (Removed auth header for registration, added delay, added wait-and-retry)
+*   `opscore/api.py` (Added None check in `get_agent_state` debug log, added detailed logging, simplified agent_notification endpoint)
+*   `opscore/lifecycle.py` (Added detailed logging)
+*   `opscore/storage.py` (Added detailed logging)
+*   `TASK.md` (Updated status)
+*   `memory-bank/activeContext.md` (Updated)
+*   `memory-bank/progress.md` (Updated)

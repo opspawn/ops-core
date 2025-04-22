@@ -18,6 +18,8 @@ logger = get_logger(__name__)
 
 # --- Agent Registration ---
 
+:start_line:21
+-------
 async def register_agent(agent_id: str, details: AgentRegistrationDetails) -> AgentInfo:
     """ # Corrected indentation (4 spaces)
     Registers a new agent with Ops-Core using the provided agent ID. (Async) # Corrected indentation (4 spaces)
@@ -33,6 +35,7 @@ async def register_agent(agent_id: str, details: AgentRegistrationDetails) -> Ag
         pydantic.ValidationError: If agent_details are invalid. # Corrected indentation (8 spaces)
         exceptions.RegistrationError: If storage fails during registration. # Corrected indentation (8 spaces)
     """ # Corrected indentation (4 spaces)
+    logger.debug("Lifecycle: Entering register_agent function.")
     agent_name = details.agentName # Corrected indentation (4 spaces)
     logger.info(f"Lifecycle: Attempting to register agent: {agent_name} with ID: {agent_id}")
 
@@ -80,6 +83,7 @@ async def register_agent(agent_id: str, details: AgentRegistrationDetails) -> Ag
         logger.error(f"Lifecycle: Failed to save registration for agent {agent_id}: {e}", exc_info=True)
         raise exceptions.RegistrationError(f"Failed to save registration for agent {agent_id}", original_exception=e) from e
 
+    logger.debug("Lifecycle: Exiting register_agent function.")
     return agent_info
 
 # --- State Management ---

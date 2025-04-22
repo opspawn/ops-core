@@ -442,10 +442,13 @@ class RedisStorage:
 
     # --- Agent State ---
 
+:start_line:445
+-------
     async def save_agent_state(self, agent_state: AgentState):
         """Saves an agent state update to Redis (stores latest state)."""
         agent_id = agent_state.agentId
         key = f"agent:{agent_id}:latest_state"
+        logger.debug(f"RedisStorage: Entering save_agent_state for agent {agent_id}")
         logger.debug(f"RedisStorage: Saving state for agent {agent_id}: {agent_state.state} at key {key}")
         try:
             data_json = agent_state.model_dump_json()
@@ -457,6 +460,7 @@ class RedisStorage:
         except Exception as e:
             logger.error(f"RedisStorage: Unexpected error saving state for {agent_id}: {e}", exc_info=True)
             raise exceptions.StorageError(f"Failed to save state for agent {agent_id} to Redis", original_exception=e) from e
+        logger.debug(f"RedisStorage: Exiting save_agent_state for agent {agent_id}")
 
     async def read_latest_agent_state(self, agent_id: str) -> Optional[AgentState]:
         """Retrieves the most recent state for an agent from Redis."""
@@ -955,7 +959,6 @@ def save_workflow_definition(definition: WorkflowDefinition):
 def read_workflow_definition(workflow_id: str) -> Optional[WorkflowDefinition]:
     """Retrieves a workflow definition."""
     logger.debug(f"Retrieving workflow definition {workflow_id}")
-    with _workflow_definitions_lock:
         data_dict = _workflow_definitions.get(workflow_id)
     if data_dict:
         logger.debug(f"Found workflow definition {workflow_id}")

@@ -47,7 +47,10 @@
 - **`httpx` Deprecation Warnings:** 6 warnings in `tests/test_middleware.py` related to `TestClient` instantiation (Task B7). Fixed 1 warning in `tests/conftest.py` related to `client.close()`.
 - Test coverage for `logging_config.py`, `models.py`, `agentkit_client.py`, and `workflow.py` needs review/improvement.
 - Task queue (`workflow._task_queue`) is still in-memory.
+:start_line:50
+-------
 - Re-queue logic in `process_next_task` uses immediate re-queue instead of delayed backoff.
+- **Inability to Retrieve Container Logs:** Unable to access standard output/error or log files from the running Ops-Core Docker container, hindering debugging efforts. (Identified 2025-04-21)
 
 ## 5. Evolution of Project Decisions
 - **[2025-04-17]** Confirmed use of FastAPI over Flask.
