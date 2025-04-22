@@ -74,7 +74,7 @@ This TASK.md document provides a detailed, step-by-step checklist for developing
 - [X] **Task 4.2:** Develop integration tests simulating complete workflows (e.g., agent registration → state update → workflow execution). (Completed: Debugged and fixed integration test failures related to API key handling, simulated agent state reporting payload, and test logic race conditions. Test `test_real_agentkit_workflow.py` now passes. - 2025-04-20)
 :start_line:75
 -------
-- [ ] **Task 4.4:** Perform performance and load testing on API endpoints to gauge response times. (Scenario 1: 401 Unauthorized error resolved in on_start. 5-min Scenario 1 run completed with low failure rate. Scenario 2: 100% 500 Internal Server Errors observed, likely due to missing agent registration in Locust script. Debugging continues. - 2025-04-21)
+- [ ] **Task 4.4:** Perform performance and load testing on API endpoints to gauge response times. (Scenario 1: 401 Unauthorized error resolved in on_start, 5-min run successful with low failure rate. Scenario 2: Agent registration fixed, but workflow trigger fails with 500 Internal Server Error (`NameError: name '_workflow_definitions' is not defined`) due to storage initialization/workflow loading issue. Attempted fix in `opscore/storage.py` by making storage instance global. Debugging continues. - 2025-04-21)
 - [ ] **Task 4.5:** Conduct User Acceptance Testing (UAT) with internal scenarios and sample use cases.
 
 ---

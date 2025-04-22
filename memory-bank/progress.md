@@ -33,10 +33,10 @@
         - [X] Task 4.1: Write unit tests for each subsystem using pytest. (Initial implementation complete; lifecycle coverage 100%, API coverage 89%).
         - [X] Task 4.2: Develop integration tests simulating complete workflows. (Completed: Debugged and fixed integration test failures related to API key handling, simulated agent state reporting payload, and test logic race conditions. Test `test_real_agentkit_workflow.py` now passes. - 2025-04-20)
         - [ ] Task 4.3: Set up GitHub Actions for CI/CD (testing, linting).
-        - [ ] **Task 4.4:** Perform performance and load testing on API endpoints. (Scenario 1: 401 Unauthorized resolved, 5-min run successful with low failures. Scenario 2: 100% 500 errors observed, likely due to missing agent registration in Locust script. Debugging continues. - 2025-04-21)
-        - [ ] Task 4.5: Conduct User Acceptance Testing (UAT).
-- **Phase 5 Tasks:** Documentation updates (`README.md`, API docs, tutorials, config guide).
-- **Backlog:** Persistent storage/queue, advanced debugging/security, async messaging, etc.
+        - [ ] **Task 4.4:** Perform performance and load testing on API endpoints. (Scenario 1: Completed successfully. Scenario 2: Debugging in progress. Agent registration fixed, but workflow trigger fails with 500 Internal Server Error (`NameError: name '_workflow_definitions' is not defined`) due to storage initialization/workflow loading issue. Attempted fix in `opscore/storage.py` by making storage instance global, but error persists. - 2025-04-21)
+                - [ ] Task 4.5: Conduct User Acceptance Testing (UAT).
+        - **Phase 5 Tasks:** Documentation updates (`README.md`, API docs, tutorials, config guide).
+        - **Backlog:** Persistent storage/queue, advanced debugging/security, async messaging, etc.
 
 ## 3. Current Status Overview
 - **Overall:** Core functionalities for lifecycle management and workflow orchestration are implemented with agent state checking and comprehensive custom exception handling. API endpoints for interaction are available, now with centralized middleware for logging and error handling. Webhook mechanism for AgentKit integration implemented. A basic Python SDK (`opscore_sdk/`) and a CLI (`opscore_cli/`) are available. Unit tests, mock integration tests, and the **real AgentKit integration test (Task 4.2) are now passing.** Ops-Core storage layer refactored to support Redis (for integration tests) and async operations.
@@ -50,7 +50,8 @@
 :start_line:50
 -------
 - Re-queue logic in `process_next_task` uses immediate re-queue instead of delayed backoff.
-- **Inability to Retrieve Container Logs:** Unable to access standard output/error or log files from the running Ops-Core Docker container, hindering debugging efforts. (Identified 2025-04-21)
+- **Inability to Retrieve Container Logs:** Unable to access standard output/error or log files from the running Ops-Core Docker container, hindering debugging efforts. (Identified 2025-04-21) - Resolved by using `docker compose logs opscore`.
+- **Scenario 2 Load Test Failure:** Workflow trigger endpoint (`POST /v1/opscore/agent/{agentId}/workflow`) consistently returns 500 Internal Server Error due to `NameError: name '_workflow_definitions' is not defined` in `opscore/storage.py`. This occurs even after implementing agent registration in the Locust script and attempting to fix storage initialization by making the storage instance global. The root cause appears to be related to how workflow definitions are loaded/accessed via the global storage instance, possibly due to timing or scope issues with the FastAPI startup event. (Identified 2025-04-21)
 
 ## 5. Evolution of Project Decisions
 - **[2025-04-17]** Confirmed use of FastAPI over Flask.
@@ -89,3 +90,4 @@
 + **[2025-04-20]** Task 4.2 Debugging (Redis Implementation): Implemented Redis storage backend (`RedisStorage` class, Docker config, dependencies). Refactored `storage.py`, `lifecycle.py`, `api.py`, `conftest.py`, `test_real_agentkit_workflow.py`, `simulated_agent/main.py` to support async storage and fix related errors (NameError, async/sync issues, timing). Test now passes initial `UNKNOWN` state check but fails waiting for `idle` state.
 + **[2025-04-20]** Task 4.2 Debugging (API Polling & Auth): Switched test polling from direct storage access to API polling. Debugged test environment issues (venv activation, missing `redis` package, missing `httpx` import). Identified API key authentication failure (401 Unauthorized) due to incorrect header format in `opscore_client` fixture. Attempts to fix the fixture were interrupted.
 + **[2025-04-20]** Task 4.2 Completion: Fixed `opscore_client` fixture in `tests/conftest.py` (import `OPSCORE_BASE_URL`, remove duplicate in test file). Fixed simulated agent state reporting payload (`tests/simulated_agent/main.py`) to include `agentId` and `timestamp`. Fixed indentation errors. Adjusted test logic (`tests/integration/test_real_agentkit_workflow.py`) to remove fixed sleep and poll directly for `idle` state, resolving race condition. Test now passes. Added backlog items B8 and B9.
++ **[2025-04-21]** Task 4.4 Debugging (Scenario 2): Implemented agent registration in `load_tests/scenario_2/locustfile.py`. Debugged header/payload issues (401, 422 errors). Identified 500 error due to `NameError: name '_workflow_definitions' is not defined` in `opscore/storage.py`. Added startup event to `opscore/api.py` to load workflow definition. Refactored `opscore/storage.py` to use a global instance. `NameError` persists, indicating issue with workflow definition loading/access via global storage instance.

@@ -6,8 +6,11 @@ including agent state updates and workflow management.
 """
 
 from fastapi import FastAPI, Depends, HTTPException, status, Request, Header
+from fastapi.exceptions import RequestValidationError # Added for specific exception handling if needed
 from typing import Dict, Any, Annotated
 import uuid # Import uuid module
+import json # Added
+from pathlib import Path # Added
 
 import os
 from dotenv import load_dotenv
@@ -48,6 +51,40 @@ app = FastAPI(
 app.add_middleware(ErrorHandlerMiddleware)
 # Request logging follows
 app.add_middleware(RequestLoggingMiddleware)
+
+
+# --- Startup Event Handler ---
+@app.on_event("startup")
+async def startup_event():
+    """Load workflow definitions on application startup."""
+    logger.info("API: Running startup event.")
+    workflow_file_path = Path("docs/sample_workflow.json")
+    if not workflow_file_path.exists():
+        logger.error(f"API: Workflow definition file not found at {workflow_file_path}")
+        # Depending on requirements, could raise an error or continue without workflows
+        return
+
+    try:
+        with open(workflow_file_path, "r") as f:
+            workflow_data = json.load(f)
+
+        # Validate and save the workflow definition
+        workflow_def = models.WorkflowDefinition(**workflow_data)
+        logger.info(f"API: Loaded workflow definition: {workflow_def.id}")
+
+        # Save to storage - assuming storage is initialized and ready
+        # Need to ensure storage is accessible here. If storage init is async,
+        # this might need adjustment or a dependency injection pattern.
+        # For now, assuming storage is ready after imports/config.
+        storage.save_workflow_definition(workflow_def)
+        logger.info(f"API: Saved workflow definition {workflow_def.id} to storage.")
+
+    except FileNotFoundError:
+        logger.error(f"API: Workflow definition file not found during startup: {workflow_file_path}")
+    except json.JSONDecodeError as e:
+        logger.error(f"API: Failed to decode workflow definition JSON: {e}")
+    except Exception as e: # Catch other potential errors during loading/saving
+        logger.error(f"API: An unexpected error occurred during workflow loading: {e}", exc_info=True)
 
 
 # --- Dependency for API Key Authentication ---
