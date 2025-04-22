@@ -20,7 +20,7 @@ services:
       - OPSCORE_STORAGE_TYPE=redis # Signal Ops-Core to use Redis
       - REDIS_HOST=redis # Redis service hostname
       - REDIS_PORT=6379 # Default Redis port
-    command: uvicorn opscore.api:app --host 0.0.0.0 --port 8000 --reload # Use --reload for development
+    command: uvicorn opscore.api:app --host 0.0.0.0 --port 8000 # Removed --reload for debugging log access
     depends_on: # Add dependency on Redis
       - redis
 

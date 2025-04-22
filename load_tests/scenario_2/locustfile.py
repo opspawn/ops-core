@@ -2,31 +2,46 @@ import random
 import time
 import os
 import json
-from locust import HttpUser, task, between
+from locust import HttpUser, task, between, constant
 from datetime import datetime, timezone
 
 # Get Ops-Core API Key from environment variable
 OPSCORE_API_KEY = os.environ.get("OPSCORE_API_KEY", "dummy_api_key")
 
-# Load sample workflow definition
-# Adjust path relative to the ops-core root where locust is likely run from
-SAMPLE_WORKFLOW_PATH = "docs/sample_workflow.json"
-try:
-    with open(SAMPLE_WORKFLOW_PATH, "r") as f:
-        SAMPLE_WORKFLOW = json.load(f)
-except FileNotFoundError:
-    print(f"Error: {SAMPLE_WORKFLOW_PATH} not found. Workflow task cannot run.")
-    SAMPLE_WORKFLOW = None
-except json.JSONDecodeError:
-    print(f"Error: {SAMPLE_WORKFLOW_PATH} is not valid JSON.")
-    SAMPLE_WORKFLOW = None
+# Sample workflow definition from docs/sample_workflow.json
+SAMPLE_WORKFLOW_DEFINITION = {
+  "id": "sample_workflow_id",
+  "name": "Sample Load Test Workflow",
+  "description": "A simple workflow for performance testing.",
+  "version": "1.0",
+  "tasks": [
+    {
+      "taskId": "step_1",
+      "name": "First Step",
+      "agentCapability": "test_capability",
+      "parameters": {
+        "message": "This is the first step."
+      },
+      "nextTaskId": "step_2"
+    },
+    {
+      "taskId": "step_2",
+      "name": "Second Step",
+      "agentCapability": "another_capability",
+      "parameters": {
+        "value": 123
+      },
+      "nextTaskId": None
+    }
+  ]
+}
 
-class OpsCoreUser(HttpUser):
+class WorkflowUser(HttpUser):
     """
     Locust user class for Scenario 2: Workflow Initiation Load.
-    Focuses solely on the POST /workflow endpoint.
+    Focuses on the POST /workflow endpoint.
     """
-    # Wait time as defined in Scenario 2 plan
+    # Wait time as defined in Scenario 2 plan (30 to 60 seconds between tasks)
     wait_time = between(30, 60)
 
     # Set the host from environment variable or default
@@ -39,44 +54,22 @@ class OpsCoreUser(HttpUser):
         """
         self.client.headers = {"Authorization": f"Bearer {OPSCORE_API_KEY}"}
         # Generate a unique agent ID for each user instance
-        self.agent_id = f"loadtest-agent-{random.randint(10000, 99999)}"
-        print(f"Locust user starting with agent ID: {self.agent_id}")
-        self.register_with_opscore() # Register the agent with Ops-Core
+        self.agent_id = f"workflow-agent-{random.randint(10000, 99999)}"
+        print(f"Locust workflow user starting with agent ID: {self.agent_id}")
+        # Note: Agent registration is assumed to be handled by a separate process
+        # or is not strictly required for this specific workflow initiation test,
+        # as the workflow endpoint might not immediately require agent state.
+        # If registration is needed, add a call here similar to Scenario 1's on_start.
 
-    def register_with_opscore(self):
-        """
-        Registers the agent with Ops-Core via the internal notification endpoint.
-        """
-        registration_payload = {
-            "event_type": "REGISTER",
-            "agent_details": {
-                "agentId": self.agent_id,
-                "agentName": f"LoadTestAgent-{self.agent_id}",
-                "version": "1.0",
-                # Add capabilities needed by the sample workflow
-                "capabilities": ["state_reporting", "test_capability", "another_capability"],
-                "contactEndpoint": f"http://fake-agent-{self.agent_id}.local/run",
-                "metadata": {"load_test_user": self.agent_id, "scenario": 2}
-            }
-        }
-        with self.client.post("/v1/opscore/internal/agent/notify", json=registration_payload, catch_response=True, name="/v1/opscore/internal/agent/notify") as response:
-            if response.status_code == 200:
-                print(f"Successfully registered agent {self.agent_id} with Ops-Core.")
-                response.success()
-            else:
-                print(f"Failed to register agent {self.agent_id} with Ops-Core. Status: {response.status_code}, Response: {response.text}")
-                response.failure(f"Failed to register agent: {response.status_code}")
-
-    @task(100) # Only task for Scenario 2
-    def post_agent_workflow(self):
+    @task(1) # Task weight of 1
+    def trigger_workflow(self):
         """
         Simulates triggering a workflow for the agent.
         """
-        if SAMPLE_WORKFLOW:
-            # Wrap the loaded sample workflow definition in the expected structure
-            workflow_payload = SAMPLE_WORKFLOW
-            wrapped_payload = {"workflowDefinition": workflow_payload}
-            self.client.post(f"/v1/opscore/agent/{self.agent_id}/workflow", json=wrapped_payload, name="/v1/opscore/agent/[id]/workflow")
-        else:
-            # Skip task if workflow definition failed to load
-            print(f"Skipping workflow task for {self.agent_id} due to missing/invalid {SAMPLE_WORKFLOW_PATH}")
+        workflow_payload = {
+            "agentId": self.agent_id,
+            "workflowDefinition": SAMPLE_WORKFLOW_DEFINITION,
+            "context": {"load_test": True, "user": f"user-{self.agent_id}", "scenario": 2}
+        }
+        # Use catch_response=True to manually mark success/failure if needed
+        self.client.post(f"/v1/opscore/agent/{self.agent_id}/workflow", json=workflow_payload, name="/v1/opscore/agent/[id]/workflow")

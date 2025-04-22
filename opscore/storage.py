@@ -442,8 +442,6 @@ class RedisStorage:
 
     # --- Agent State ---
 
-:start_line:445
--------
     async def save_agent_state(self, agent_state: AgentState):
         """Saves an agent state update to Redis (stores latest state)."""
         agent_id = agent_state.agentId
@@ -959,7 +957,7 @@ def save_workflow_definition(definition: WorkflowDefinition):
 def read_workflow_definition(workflow_id: str) -> Optional[WorkflowDefinition]:
     """Retrieves a workflow definition."""
     logger.debug(f"Retrieving workflow definition {workflow_id}")
-        data_dict = _workflow_definitions.get(workflow_id)
+    data_dict = _workflow_definitions.get(workflow_id)
     if data_dict:
         logger.debug(f"Found workflow definition {workflow_id}")
         try:

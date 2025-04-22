@@ -18,8 +18,6 @@ logger = get_logger(__name__)
 
 # --- Agent Registration ---
 
-:start_line:21
--------
 async def register_agent(agent_id: str, details: AgentRegistrationDetails) -> AgentInfo:
     """ # Corrected indentation (4 spaces)
     Registers a new agent with Ops-Core using the provided agent ID. (Async) # Corrected indentation (4 spaces)

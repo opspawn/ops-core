@@ -5,6 +5,10 @@ import json
 from locust import HttpUser, task, between
 from datetime import datetime, timezone
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 # Get Ops-Core API Key from environment variable
 OPSCORE_API_KEY = os.environ.get("OPSCORE_API_KEY", "dummy_api_key")
 
@@ -33,6 +37,11 @@ class OpsCoreUser(HttpUser):
         print(f"Locust user starting with agent ID: {self.agent_id}")
         self.register_with_opscore() # Register the agent with Ops-Core
         time.sleep(1) # Add a small delay to allow state to be saved
+        # Restore original headers for subsequent tasks
+        self.client.headers = original_headers
+        self.client.headers["Authorization"] = f"Bearer {OPSCORE_API_KEY}" # Explicitly add Authorization header
+
+        logger.debug(f"Headers after restoration in on_start: {self.client.headers}") # Debug log headers after restoration
 
         # Wait for agent state to be available
         timeout = 10  # seconds
@@ -51,8 +60,6 @@ class OpsCoreUser(HttpUser):
             # Optionally fail the user if state is not available within timeout
             # self.environment.runner.quit() # Example of how to stop the test
 
-        # Restore original headers for subsequent tasks
-        self.client.headers = original_headers
 
     def register_with_opscore(self):
         """
@@ -89,4 +96,5 @@ class OpsCoreUser(HttpUser):
             "state": random.choice(["idle", "active", "error", "finished"]),
             "details": {"load_test": True, "user": f"user-{self.agent_id}"}
         }
+        logger.debug(f"Sending state update for {self.agent_id} with headers: {self.client.headers}") # Debug log headers
         self.client.post(f"/v1/opscore/agent/{self.agent_id}/state", json=state_payload, name="/v1/opscore/agent/[id]/state")

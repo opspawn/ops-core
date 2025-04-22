@@ -87,59 +87,50 @@ async def health_check():
 async def agent_notification(payload: AgentNotificationPayload):
     """
     Internal endpoint for AgentKit to notify Ops-Core about agent events
-:start_line:88
--------
     (e.g., registration, deregistration).
-:start_line:88
--------
-:start_line:88
--------
     """
-:start_line:98
--------
     logger.debug("API: Received request to agent_notification endpoint.")
     logger.debug("API: Entering agent_notification function.")
+    logger.debug(f"API: Received agent notification payload: {payload.model_dump_json()}") # Log the full payload
     # logger.info(f"API: Received agent notification: Event='{payload.event_type}', AgentName='{payload.agent_details.agentName}'") # Commented out for minimal test
 
     # Removed broad try/except block; middleware handles OpsCoreError and Exception
-    # if payload.event_type.upper() == "REGISTER": # Commented out for minimal test
-    #     agent_id = payload.agent_details.agentId # Commented out for minimal test
-    #     if not agent_id: # Commented out for minimal test
-    #         logger.error("API: Received REGISTER notification with missing agentId in details.") # Commented out for minimal test
-    #         # Raise HTTPException directly for validation errors # Commented out for minimal test
-    #         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing agentId in agent_details for REGISTER event.") # Commented out for minimal test
+    if payload.event_type.upper() == "REGISTER":
+        agent_id = payload.agent_details.agentId
+        if not agent_id:
+            logger.error("API: Received REGISTER notification with missing agentId in details.")
+            # Raise HTTPException directly for validation errors
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing agentId in agent_details for REGISTER event.")
 
-    #     logger.info(f"API: Calling lifecycle.register_agent for agent {agent_id}") # Commented out for minimal test
-    #     try: # Commented out for minimal test
-    #         await lifecycle.register_agent( # Commented out for minimal test
-    #             agent_id=agent_id, # Commented out for minimal test
-    #             details=payload.agent_details # Commented out for minimal test
-    #         ) # Commented out for minimal test
-    #         logger.info(f"API: Successfully registered agent {agent_id} via notification.") # Commented out for minimal test
-    #         logger.debug("API: Exiting agent_notification function (REGISTER success).") # Commented out for minimal test
-    #         return StatusResponse(message=f"Agent {agent_id} registered successfully.") # Commented out for minimal test
-    #     except exceptions.AgentAlreadyExistsError as e: # Commented out for minimal test
-    #         # Specific handling for already exists - maybe return success but log? # Commented out for minimal test
-    #         logger.warning(f"API: Attempted to register an agent that might already exist: {e}") # Commented out for minimal test
-    #         logger.debug("API: Exiting agent_notification function (REGISTER already exists).") # Commented out for minimal test
-    #         return StatusResponse(message=f"Agent potentially already registered: {e}") # Commented out for minimal test
-    #     # Other OpsCoreErrors (InvalidStateError, StorageError) will be caught by middleware # Commented out for minimal test
+        logger.info(f"API: Calling lifecycle.register_agent for agent {agent_id}")
+        try:
+            await lifecycle.register_agent(
+                agent_id=agent_id,
+                details=payload.agent_details
+            )
+            logger.info(f"API: Successfully registered agent {agent_id} via notification.")
+            logger.debug("API: Exiting agent_notification function (REGISTER success).")
+            return StatusResponse(message=f"Agent {agent_id} registered successfully.")
+        except exceptions.AgentAlreadyExistsError as e:
+            # Specific handling for already exists - maybe return success but log?
+            logger.warning(f"API: Attempted to register an agent that might already exist: {e}")
+            logger.debug("API: Exiting agent_notification function (REGISTER already exists).")
+            return StatusResponse(message=f"Agent potentially already registered: {e}")
+        # Other OpsCoreErrors (InvalidStateError, StorageError) will be caught by middleware
 
-    # elif payload.event_type.upper() == "DEREGISTER": # Commented out for minimal test
-    #     # TODO: Implement deregistration logic in lifecycle module # Commented out for minimal test
-    #     logger.warning(f"API: Received DEREGISTER notification for agent '{payload.agent_details.agentName}', but deregistration logic is not yet implemented.") # Commented out for minimal test
-    #     logger.debug("API: Exiting agent_notification function (DEREGISTER received).") # Commented out for minimal test
-    #     return StatusResponse(message="DEREGISTER notification received but not fully processed.") # Commented out for minimal test
-    # else: # Commented out for minimal test
-    #     logger.warning(f"API: Received unknown agent notification event type: {payload.event_type}") # Commented out for minimal test
-    #     logger.debug("API: Exiting agent_notification function (unknown event type).") # Commented out for minimal test
-    #     # Raise HTTPException directly for validation errors # Commented out for minimal test
-    #     raise HTTPException( # Commented out for minimal test
-    #         status_code=status.HTTP_400_BAD_REQUEST, # Commented out for minimal test
-    #         detail=f"Unknown event type: {payload.event_type}" # Commented out for minimal test
-    #     ) # Commented out for minimal test
-
-    return StatusResponse(message="Minimal registration endpoint reached.") # Added minimal success response
+    elif payload.event_type.upper() == "DEREGISTER":
+        # TODO: Implement deregistration logic in lifecycle module
+        logger.warning(f"API: Received DEREGISTER notification for agent '{payload.agent_details.agentName}', but deregistration logic is not yet implemented.")
+        logger.debug("API: Exiting agent_notification function (DEREGISTER received).")
+        return StatusResponse(message="DEREGISTER notification received but not fully processed.")
+    else:
+        logger.warning(f"API: Received unknown agent notification event type: {payload.event_type}")
+        logger.debug("API: Exiting agent_notification function (unknown event type).")
+        # Raise HTTPException directly for validation errors
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown event type: {payload.event_type}"
+        )
 
 
 @app.post(
@@ -206,8 +197,6 @@ async def get_agent_state(agent_id: str):
         logger.warning(f"API: No state found for agent {agent_id} during GET state request (lifecycle.get_state returned None). Returning 404.")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No state found for agent {agent_id}")
 
-   # Log the state if found, otherwise log that no state was found
-   if agent_state:
    # Log the state if found, otherwise log that no state was found
    if agent_state:
        logger.debug(f"API: Returning state for agent {agent_id}: {agent_state.state}")
