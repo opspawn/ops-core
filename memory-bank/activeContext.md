@@ -2,24 +2,30 @@
 
 ## 1. Current Work Focus
 - **Completed:** Phase 1, Phase 2, Task 3.1 (SDK), Task 3.2 (CLI), Task 3.4 (AgentKit Integration), Task 3.3 (Middleware), Task 5.6 (AgentKit Requirements Doc Update), **Task 4.2 (Real AgentKit Integration Tests)**, **Task 4.4 (Minimal Load Test Scenario 0)**.
-- **Focus:** Completing Task 4.4 (Performance and Load Testing).
+- **Focus:** Debugging agent registration failures during load testing (Scenario 1 and 2).
 
 ## 2. Recent Changes & Decisions (This Session - 2025-04-21 @ 08:50 - 09:23)
 - **Completed Task 4.4 (Minimal Load Test Scenario 0):**
     - Added Scenario 0 (Minimal Load Test) to `load_testing_plan.md`.
     - Created `load_tests/opscore_locustfile.py` to implement load tests using Locust.
     - Debugged Locust execution issues:
-        - Resolved "command not found" by executing Locust via the virtual environment's Python interpreter (`./.venv/bin/python -m locust`).
-        - Resolved `AttributeError: 'OpsCoreUser' object has no attribute 'get_request_meta'` by removing incorrect method calls in `load_tests/opscore_locustfile.py`.
-        - Resolved `401 Unauthorized` error by ensuring the correct API key ("test-api-key") was passed as an environment variable to the Locust command.
-        - Resolved `404 Not Found` error for state updates by adding agent registration via the internal notification endpoint (`/v1/opscore/internal/agent/notify`) in `load_tests/opscore_locustfile.py`'s `on_start` method.
+    - Resolved "command not found" by executing Locust via the virtual environment's Python interpreter (`./.venv/bin/python -m locust`).
+    - Resolved `AttributeError: 'OpsCoreUser' object has no attribute 'get_request_meta'` by removing incorrect method calls in `load_tests/opscore_locustfile.py`.
+    - Resolved `401 Unauthorized` error by ensuring the correct API key ("test-api-key") was passed as an environment variable to the Locust command.
+    - Resolved `404 Not Found` error for state updates by adding agent registration via the internal notification endpoint (`/v1/opscore/internal/agent/notify`) in `load_tests/opscore_locustfile.py`'s `on_start` method.
     - Configured Locust to run in headless mode and redirect output to `load_test_results.txt` for easier review.
     - Successfully executed the minimal load test (Scenario 0) with 0% failures.
+- **Debugging Agent Registration Failures (Scenario 1 & 2):**
+    - Observed 100% failures in Scenario 1 and 2 load tests related to agent registration (`Failed to register agent: 0`, `ConnectionResetError`).
+    - Removed `Authorization` header for registration endpoint calls in `load_tests/scenario_1/locustfile.py` as it's not required. This did not resolve the issue.
+    - Identified `AttributeError: 'NoneType' object has no attribute 'state'` in Ops-Core logs, indicating an issue when getting agent state before it's set. Fixed this in `opscore/api.py`. This prevented the 500 error but not the registration failure.
+    - Added a small delay after registration in `load_tests/scenario_1/locustfile.py` to allow state to be saved. This did not resolve the issue.
 - **Decision:** Use headless mode and output redirection for future load test runs.
 - **Decision:** Shorten test duration during debugging cycles.
 
 ## 3. Next Steps (Next Session)
-- **Continue Task 4.4:** Execute the remaining load testing scenarios (Scenario 1, 2, 3, and 4) as defined in `load_testing_plan.md`.
+- **Continue Debugging Agent Registration:** Investigate the root cause of agent registration failures (`Failed to register agent: 0`, `ConnectionResetError`) during load testing. Focus on the `/v1/opscore/internal/agent/notify` endpoint and its interaction with the storage layer.
+- **Execute Remaining Load Tests (if registration is fixed):** If agent registration is resolved, execute the full load testing scenarios (Scenario 1, 2, 3, and 4) as defined in `load_testing_plan.md`.
 - **Analyze Results:** Review the output from the load tests in `load_test_results.txt` and potentially other monitoring tools (`docker stats`).
 - **Document Findings:** Summarize the results, identify bottlenecks, and document recommendations in `load_testing_plan.md` and potentially other documentation.
 - **Address Backlog Items:**
